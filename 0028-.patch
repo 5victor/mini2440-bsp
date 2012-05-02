@@ -1,0 +1,181 @@
+From b2a2f29b284f44285591fba7c0cad2a7a3f27a92 Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Mon, 8 Aug 2011 11:02:06 +0800
+Subject: [PATCH 28/36] ...
+
+---
+ drivers/misc/Kconfig       |    6 ++
+ drivers/misc/Makefile      |    2 +-
+ drivers/misc/mfrc522/spi.c |  123 +-------------------------------------------
+ 3 files changed, 8 insertions(+), 123 deletions(-)
+ mode change 100644 => 120000 drivers/misc/mfrc522/spi.c
+
+diff --git a/drivers/misc/Kconfig b/drivers/misc/Kconfig
+index 4d073f1..c2e4c0a 100644
+--- a/drivers/misc/Kconfig
++++ b/drivers/misc/Kconfig
+@@ -12,6 +12,12 @@ menuconfig MISC_DEVICES
+ 
+ if MISC_DEVICES
+ 
++config MFRC522_SPI
++	tristate "MFRC522 S3C2440 SPI DRIVER"
++	depends on CPU_S3C2440
++	help
++	  MFRC522 S3C2440 SPI DRIVER
++
+ config AD525X_DPOT
+ 	tristate "Analog Devices Digital Potentiometers"
+ 	depends on (I2C || SPI) && SYSFS
+diff --git a/drivers/misc/Makefile b/drivers/misc/Makefile
+index 98009cc..2033bbd 100644
+--- a/drivers/misc/Makefile
++++ b/drivers/misc/Makefile
+@@ -1,7 +1,7 @@
+ #
+ # Makefile for misc devices that really don't fit anywhere else.
+ #
+-
++obj-$(CONFIG_MFRC522_SPI)	+= mfrc522/
+ obj-$(CONFIG_IBM_ASM)		+= ibmasm/
+ obj-$(CONFIG_AD525X_DPOT)	+= ad525x_dpot.o
+ obj-$(CONFIG_AD525X_DPOT_I2C)	+= ad525x_dpot-i2c.o
+diff --git a/drivers/misc/mfrc522/spi.c b/drivers/misc/mfrc522/spi.c
+deleted file mode 100644
+index 3169958..0000000
+--- a/drivers/misc/mfrc522/spi.c
++++ /dev/null
+@@ -1,122 +0,0 @@
+-#include <linux/init.h>
+-#include <linux/kernel.h>
+-#include <linux/io.h>
+-#include <linux/clk.h>
+-#include <linux/spinlock.h>
+-#include <mach/hardware.h>
+-#include <mach/regs-spi.h>
+-#include <linux/delay.h>
+-
+-/* THIS INTERFACE USE SPI0, THE S3C2440_SPI::MEMBASE*/
+-/* chip sel GPB0*/
+-
+-#define BAUD	5000000 /*5MHz*/
+-
+-
+-struct s3c2440_spi
+-{
+-	void 		*membase;
+-	spinlock_t	lock;
+-	int cs;
+-};
+-
+-static struct s3c2440_spi s3c2440_spi = {0};
+-
+-static inline unsigned int spi_read_reg(int reg_offset)
+-{
+-	return ioread32(s3c2440_spi.membase + reg_offset);
+-}
+-
+-static void inline spi_write_reg(unsigned int value, int reg_offset)
+-{
+-	iowrite32(value, s3c2440_spi.membase + reg_offset);
+-}
+-
+-static void inline spi_ready(void)
+-{
+-	unsigned int spsta;
+-	while(1) {
+-		spsta = spi_read_reg(SPSTA);
+-		if (spsta & 1)
+-			break;
+-	}
+-}
+-
+-/*
+-GPE13 Input/output SPICLK0 – –
+-GPE12 Input/output SPIMOSI0 – –
+-GPE11 Input/output SPIMISO0 
+-chip sel GPB0
+- */
+-
+-
+-static void spi_init_gpio(void)
+-{
+-	int gpecon;
+-	int gpbcon;
+-	int gpbdat;
+-	
+-	gpbcon = ioread32(GPIO_VA + 0x10);
+-	gpbcon &= ~(3 << 0);
+-	gpbcon |= 1 << 0;
+-	iowrite32(gpbcon, GPIO_VA + 0x10);
+-	gpbdat = ioread32(GPIO_VA + 0x14);
+-/*	gpbdat |= 1;*/
+-	iowrite32(gpbdat, GPIO_VA + 0x14);
+-
+-	gpecon = ioread32(GPIO_VA + 0x40);
+-	gpecon &= ~((3 << 26) | (3 << 24) | (3 << 22));
+-	gpecon |= (2 << 26) | (2 << 24) | (2 << 22);
+-	iowrite32(gpecon, GPIO_VA + 0x40);
+-}
+-
+-int spi_init(void)
+-{
+-	int pclk_rate;
+-	struct clk *pclk;
+-	int pre;
+-
+-	s3c2440_spi.lock = SPIN_LOCK_UNLOCKED;
+-	s3c2440_spi.membase = SPI0_VA;
+-
+-	unsigned int spcon;
+-	spcon = (0 << 5) | (1 << 4) | (1 << 3) | (0 << 2) | (0 << 1) | (0 << 0); /* POLL | SCK EN | MASTER | CPOL = 0 | CPHA = 0 | TAG = 0*/
+-					/* MFRC522 required CPOL CPHA */
+-	spi_write_reg(spcon, SPCON);
+-	
+-	pclk = clk_get(NULL, "pclk");
+-	pclk_rate = clk_get_rate(pclk);
+-
+-	pre = pclk_rate / 2;
+-	pre = pre / BAUD - 1;
+-	spi_write_reg(pre, SPPRE);
+-	
+-	spi_init_gpio();	
+-}
+-
+-unsigned char spi_get_char(void)
+-{
+-	spi_ready();
+-	spi_write_reg(0xFF, SPTDAT);
+-	spi_ready();
+-	return spi_read_reg(SPRDAT);
+-}
+-
+-void spi_put_char(unsigned char ch)
+-{
+-	spi_ready();
+-	spi_write_reg(ch, SPTDAT);
+-}
+-
+-int spi_debug(void *dummy)
+-{
+-	char test[] = "xiaoniu";
+-	int i;
+-	printk(KERN_INFO "%s:entery debug...\n", __func__);
+-	while(1) {
+-		for (i = 0; i < sizeof(test); i++) {
+-			spi_put_char(test[i]);
+-			udelay(100);
+-		}
+-	}
+-}
+diff --git a/drivers/misc/mfrc522/spi.c b/drivers/misc/mfrc522/spi.c
+new file mode 120000
+index 0000000..94d8441
+--- /dev/null
++++ b/drivers/misc/mfrc522/spi.c
+@@ -0,0 +1 @@
++/home/victor/workspace/ldd/rfid/spi.c
+\ No newline at end of file
+-- 
+1.7.1
+

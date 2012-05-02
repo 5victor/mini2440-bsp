@@ -1,0 +1,278 @@
+From bed4ef3bff6d0ee915fc7e7b566d70fcd8e84457 Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Thu, 18 Aug 2011 09:35:14 +0800
+Subject: [PATCH 34/36] finish nand driver
+
+---
+ arch/arm/mach-s3c2440x/include/mach/regs-nand.h |   23 ++++
+ arch/arm/mach-s3c2440x/io.c                     |    1 +
+ arch/arm/mach-s3c2440x/mach-mini2440.c          |    3 +
+ drivers/mtd/nand/Kconfig                        |   13 ++
+ drivers/mtd/nand/Makefile                       |    1 +
+ drivers/mtd/nand/s3c2440x.c                     |  162 +++++++++++++++++++++++
+ 6 files changed, 203 insertions(+), 0 deletions(-)
+ create mode 100644 arch/arm/mach-s3c2440x/include/mach/regs-nand.h
+ create mode 100644 drivers/mtd/nand/s3c2440x.c
+
+diff --git a/arch/arm/mach-s3c2440x/include/mach/regs-nand.h b/arch/arm/mach-s3c2440x/include/mach/regs-nand.h
+new file mode 100644
+index 0000000..da03f01
+--- /dev/null
++++ b/arch/arm/mach-s3c2440x/include/mach/regs-nand.h
+@@ -0,0 +1,23 @@
++#ifndef __ARCH_ASM_REGS_NAND_H
++#define __ARCH_ASM_REGS_NAND_H
++
++#DEFINE	NFCONF		0X0
++#DEFINE NFCONT		0X4
++#DEFINE NFCMD		0X8
++#DEFINE NFADDR		0XC
++#DEFINE NFDATA		0X10
++#DEFINE NFMECCD0		0X14
++#DEFINE NFMECCD1		0X18
++#DEFINE NFSECCD		0X1C
++#DEFINE NFSTAT		0X20
++#DEFINE NFESTAT0	0X24
++#DEFINE NFESTAT1	0X28
++#DEFINE NFMECC0		0X2C
++#DEFINE NFMECC1		0X30
++#DEFINE NFSECC		0X34
++#DEFINE NFSBLK		0X38
++#DEFINE NFEBLK		0X3C
++
++
++
++#endif
+diff --git a/arch/arm/mach-s3c2440x/io.c b/arch/arm/mach-s3c2440x/io.c
+index 6d585a5..9977b46 100644
+--- a/arch/arm/mach-s3c2440x/io.c
++++ b/arch/arm/mach-s3c2440x/io.c
+@@ -16,6 +16,7 @@ static struct map_desc s3c2440x_map_desc[] __initdata = {
+ 	MAP_DESC_ENTRY(CLK_PM_VA, CLK_PM_PA, MAP_SIZE),
+ 	MAP_DESC_ENTRY(GPIO_VA, GPIO_PA, MAP_SIZE),
+ 	MAP_DESC_ENTRY(SPI_VA, SPI_PA, MAP_SIZE),
++	MAP_DESC_ENTRY(NAND_VA, NAND_PA, MAP_SIZE),
+ };
+ 
+ void __init s3c2440x_map_io(void)
+diff --git a/arch/arm/mach-s3c2440x/mach-mini2440.c b/arch/arm/mach-s3c2440x/mach-mini2440.c
+index f92d3b2..63aee31 100644
+--- a/arch/arm/mach-s3c2440x/mach-mini2440.c
++++ b/arch/arm/mach-s3c2440x/mach-mini2440.c
+@@ -112,6 +112,9 @@ static struct platform_device dm9000e_device = {
+ 	.num_resources = ARRAY_SIZE(dm9000e_res),
+ };
+ 
++static struct platform_device nand_device = {
++	.name = "s3c2440x-nand",
++};
+ 
+ static struct platform_device *mini2440_devices[] __initdata = {
+ 	s3c2440x_uarts,
+diff --git a/drivers/mtd/nand/Kconfig b/drivers/mtd/nand/Kconfig
+index 8229802..539653c 100644
+--- a/drivers/mtd/nand/Kconfig
++++ b/drivers/mtd/nand/Kconfig
+@@ -43,6 +43,19 @@ config MTD_NAND_MUSEUM_IDS
+ 	  NAND chips (page size 256 byte, erase size 4-8KiB). The IDs
+ 	  of these chips were reused by later, larger chips.
+ 
++config MTD_NAND_S3C2440X
++	tristate "s3c2440x nand control surport (by victor)"
++	depends on ARCH_S3C2440X
++	help
++	  ...
++
++config MTD_NAND_S3C2440X_DEBUG
++	bool "s3c2440x debug surport"
++	depends on MTD_NAND_S3C2440X
++	help
++	  ...
++
++
+ config MTD_NAND_AUTCPU12
+ 	tristate "SmartMediaCard on autronix autcpu12 board"
+ 	depends on ARCH_AUTCPU12
+diff --git a/drivers/mtd/nand/Makefile b/drivers/mtd/nand/Makefile
+index 8ad6fae..18b26fc 100644
+--- a/drivers/mtd/nand/Makefile
++++ b/drivers/mtd/nand/Makefile
+@@ -7,6 +7,7 @@ obj-$(CONFIG_MTD_NAND_ECC)		+= nand_ecc.o
+ obj-$(CONFIG_MTD_NAND_IDS)		+= nand_ids.o
+ obj-$(CONFIG_MTD_SM_COMMON) 		+= sm_common.o
+ 
++obj-$(CONFIG_MTD_NAND_S3C2440X)		+= s3c2440x.o
+ obj-$(CONFIG_MTD_NAND_CAFE)		+= cafe_nand.o
+ obj-$(CONFIG_MTD_NAND_SPIA)		+= spia.o
+ obj-$(CONFIG_MTD_NAND_AMS_DELTA)	+= ams-delta.o
+diff --git a/drivers/mtd/nand/s3c2440x.c b/drivers/mtd/nand/s3c2440x.c
+new file mode 100644
+index 0000000..a58234d
+--- /dev/null
++++ b/drivers/mtd/nand/s3c2440x.c
+@@ -0,0 +1,162 @@
++/* ...
++ *
++ */
++
++#ifdef CONFIG_MTD_NAND_S3C2440X_DEBUG
++#define DEBUG
++#endif
++
++#include <linux/kernel.h>
++#include <linux/init.h>
++#include <linux/module.h>
++#include <linux/clk.h>
++#include <linux/slab.h>
++#include <mach/hardware.h>
++
++static void s3c2440x_nand_init_hw(void)
++{
++	struct clk *hclk;
++	unsigned int reg;
++	reg = ioread32(NAND_VA + NFCONF);
++	reg &= ~((3 << 12) | (7 << 8) | (7 << 4));
++	reg |= (0 << 12) | (1 << 8) | (0 << 4);
++	iowrite32(reg, NAND_VA + NFCONF);
++	reg = ioread32(NAND_VA + NFCONT);
++	reg |= 0x3;
++	iowrite32(reg, NAND_VA + NFCONT);
++	reg = ioread32(CLK_PW_VA + CLKCON);
++	reg |= 1 << 4;
++	iowrite32(reg, CLK_PW_VA + CLKCON);
++}
++
++static void s3c2440x_nand_write_buf(struct mtd_info *mtd,
++			const uint8_t *buf, int len)
++{
++	int i;
++	iowrite32_rep(NAND_VA + NFDATA, buf, len / 4);
++	if (len % 4 != 0) {
++		dev_dbg(&mtd_info->dev, "%s len % 4 != 0\n", __func__);
++		/*
++		buf += len & ~3;
++
++		for (; len & 3; len --)
++			iowrite8(*/
++	}
++
++}
++
++static void s3c2440x_nand_read_buf(struct mtd_info *mtd,
++			const uint8_t *buf, int len)
++{
++	ioread32_rep(NAND_VA + NFDATA, buf, len / 4);
++	if (len % 4 != 0) {
++		dev_dbg(&mtd_info->dev, "%s len % 4 != 0\n", __func__);
++	}
++}
++
++static void s3c2440x_nand_cmd_ctrl(struct mtd_info *mtd, int dat,
++				unsigned int ctrl)
++{
++	if (dat == NAND_CMD_NONE) {
++		return ;
++	}
++
++	if (ctrl & NAND_CLE) {
++		iowrite8(dat, NAND_VA + NFCMMD);
++	} else {
++		iowrite8(data, NAND_VA + NFADDR);
++	}
++}
++
++static int s3c2440x_nand_dev_ready(struct mtd_info *mtd)
++{
++	return ioread8(NAND_VA + NFSTAT) & 0x1;
++}
++
++static void s3c2440x_nand_select_chip(struct mtd_info *mtd, int chip)
++{
++	unsigned int reg;
++	reg = ioread16(NAND_VA + NFCONT);
++	if (chip == -1) {
++		reg |= 0x1 << 1;
++	} else {
++		reg &= ~(1 << 1);
++	}
++	iowrite16(reg, NAND_VA + NFCONT);
++}
++
++const char *part_probes[] = {"cmdlinepart", NULL};
++
++static int s3c2440x_nand_probe(struct platform_device *device)
++{
++	struct nand_chip *chip;
++	struct mtd_info *mtd;
++	struct mtd_partition *part_info;
++	int ret;
++	dev_dbg(&device->dev, "%s\n", __func__);
++	
++	s3c2440x_nand_init_hw();
++	chip = kzalloc(sizeof(struct nand_chip), GFP_KERNEL);
++	mtd = kzalloc(sizeof(struct mtd_info), GFP_KERNEL);
++
++	platform_set_drvdata(device, mtd);
++
++	chip->write_buf = s3c2440x_nand_write_buf;
++	chip->read_buf = s3c2440x_nand_read_buf;
++	chip->cmd_ctrl = s3c2440x_nand_cmd_ctrl;
++	chip->dev_ready = s3c2440x_nand_dev_ready;
++	chip->chip_delay = 50;
++	chip->select_chip = s3c2440x_nand_select_chip;
++	mtd->priv = chip;
++
++	ret = nand_scan_ident(mtd, 1, NULL);
++	if (ret) {
++		dev_dbg(&mtd->dev, "%s nand_scan ident fail\n", __func__);
++		kfree(chip);
++		kfree(mtd);
++		return ;
++	}
++
++	nand_scan_tail(mtd);
++
++	ret = parse_mtd_partitions(mtd, part_probes, &part_info, 0);
++	
++	if (ret > 0) {
++		return add_mtd_partitions(mtd, part_info, ret);
++	}
++	return add_mtd_device(mtd);
++
++}
++
++static int s3c2440x_nand_remove(struct platform_device *device)
++{
++	dev_dbg(&device->dev, "%s\n", __func__);
++	struct mtd_info *mtd;
++	mtd = platform_get_drvdata(device);
++	nand_release(mtd);
++	kfree(mtd->priv);
++	kfree(mtd);
++
++}
++
++static struct platform_driver s3c2440x_nand = {
++	.probe = s3c2440x_nand_probe,
++	.remove = s3c2440x_nand_remove,
++	.driver = {
++		.name = "s3c2440x-nand",
++		.owner = THIS_MODULE,
++	},
++};
++
++static int s3c2440x_nand_init(void)
++{
++	return platform_driver_register(&s3c2440x_nand);
++}
++
++static void s3c2440x_nand_exit(void)
++{
++	platform_driver_unregister(&s3c2440x_nand);
++}
++
++module_init(s3c2440x_nand_init);
++module_exit(s3c2440x_nand_exit);
+-- 
+1.7.1
+

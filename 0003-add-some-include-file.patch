@@ -1,0 +1,61 @@
+From 224447c4974216cb424e437586052f583ecc24ce Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Sat, 16 Jul 2011 16:45:39 +0800
+Subject: [PATCH 03/36] add some include file
+
+---
+ arch/arm/mach-s3c2440x/include/mach/memory.h  |    6 ++++++
+ arch/arm/mach-s3c2440x/include/mach/timex.h   |    6 ++++++
+ arch/arm/mach-s3c2440x/include/mach/vmalloc.h |    4 ++++
+ arch/arm/tools/mach-types                     |    1 +
+ 4 files changed, 17 insertions(+), 0 deletions(-)
+ create mode 100644 arch/arm/mach-s3c2440x/include/mach/memory.h
+ create mode 100644 arch/arm/mach-s3c2440x/include/mach/timex.h
+ create mode 100644 arch/arm/mach-s3c2440x/include/mach/vmalloc.h
+
+diff --git a/arch/arm/mach-s3c2440x/include/mach/memory.h b/arch/arm/mach-s3c2440x/include/mach/memory.h
+new file mode 100644
+index 0000000..cc924f6
+--- /dev/null
++++ b/arch/arm/mach-s3c2440x/include/mach/memory.h
+@@ -0,0 +1,6 @@
++#ifndef __ASM_ARCH_MEMORY_H
++#define __ASM_ARCH_MEMORY_H
++
++#define PHYS_OFFSET	0x30000000UL
++
++#endif
+diff --git a/arch/arm/mach-s3c2440x/include/mach/timex.h b/arch/arm/mach-s3c2440x/include/mach/timex.h
+new file mode 100644
+index 0000000..a9a6d5c
+--- /dev/null
++++ b/arch/arm/mach-s3c2440x/include/mach/timex.h
+@@ -0,0 +1,6 @@
++#ifndef __ASM_ARCH_TIMEX_H
++#define __ASM_ARCH_TIMEX_H
++
++#define CLOCK_TICK_RATE		12000000
++
++#endif
+diff --git a/arch/arm/mach-s3c2440x/include/mach/vmalloc.h b/arch/arm/mach-s3c2440x/include/mach/vmalloc.h
+new file mode 100644
+index 0000000..99b5c4d
+--- /dev/null
++++ b/arch/arm/mach-s3c2440x/include/mach/vmalloc.h
+@@ -0,0 +1,4 @@
++#ifndef __ASM_ARCH_VMALLOC_H
++#define __ASM_ARCH_VMALLOC_H
++
++#define	VMALLOC_END	0xF7000000UL
+diff --git a/arch/arm/tools/mach-types b/arch/arm/tools/mach-types
+index 2fea897..0a6a07f 100644
+--- a/arch/arm/tools/mach-types
++++ b/arch/arm/tools/mach-types
+@@ -3219,3 +3219,4 @@ pivicc			MACH_PIVICC		PIVICC			3235
+ pcm048			MACH_PCM048		PCM048			3236
+ dds			MACH_DDS		DDS			3237
+ chalten_xa1		MACH_CHALTEN_XA1	CHALTEN_XA1		3238
++s3c2440x		ARCH_S3C2440X		S3C2440X		5201
+-- 
+1.7.1
+

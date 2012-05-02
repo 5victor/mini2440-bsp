@@ -1,0 +1,232 @@
+From 839509d0a33e1dd56dd1f9b628fc941cfc53758d Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Sun, 24 Jul 2011 11:02:29 +0800
+Subject: [PATCH 17/36] start uart driver, dosen't finish uart_ops and console
+
+---
+ drivers/serial/Kconfig    |    7 ++
+ drivers/serial/Makefile   |    1 +
+ drivers/serial/s3c2440x.c |  181 +++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 189 insertions(+), 0 deletions(-)
+ create mode 100644 drivers/serial/s3c2440x.c
+
+diff --git a/drivers/serial/Kconfig b/drivers/serial/Kconfig
+index aff9dcd..4ac7902 100644
+--- a/drivers/serial/Kconfig
++++ b/drivers/serial/Kconfig
+@@ -519,6 +519,13 @@ config SERIAL_S3C2440
+ 	help
+ 	  Serial port support for the Samsung S3C2440, S3C2416 and S3C2442 SoC
+ 
++config SERISL_S3C2440X
++	tristate "S3C2440 Serial port Support(by Victor)"
++	depends on ARCH_S3C2440X
++	default y if ARCH_S3C2440X
++	help
++	  Serial port support for the S3C2440X
++
+ config SERIAL_S3C24A0
+ 	tristate "Samsung S3C24A0 Serial port support"
+ 	depends on SERIAL_SAMSUNG && CPU_S3C24A0
+diff --git a/drivers/serial/Makefile b/drivers/serial/Makefile
+index c570576..76fd93a 100644
+--- a/drivers/serial/Makefile
++++ b/drivers/serial/Makefile
+@@ -42,6 +42,7 @@ obj-$(CONFIG_SERIAL_S3C2400) += s3c2400.o
+ obj-$(CONFIG_SERIAL_S3C2410) += s3c2410.o
+ obj-$(CONFIG_SERIAL_S3C2412) += s3c2412.o
+ obj-$(CONFIG_SERIAL_S3C2440) += s3c2440.o
++obj-$(CONFIG_SERIAL_S3C2440X)	+= s3c2440x.o
+ obj-$(CONFIG_SERIAL_S3C24A0) += s3c24a0.o
+ obj-$(CONFIG_SERIAL_S3C6400) += s3c6400.o
+ obj-$(CONFIG_SERIAL_S5PV210) += s5pv210.o
+diff --git a/drivers/serial/s3c2440x.c b/drivers/serial/s3c2440x.c
+new file mode 100644
+index 0000000..d11a9ce
+--- /dev/null
++++ b/drivers/serial/s3c2440x.c
+@@ -0,0 +1,181 @@
++#include <linux/init.h>
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/console.h>
++#include <linux/serial_core.h>
++#include <linux/platfrom_device.h>
++#include <linux/irq.h>
++#include <mach/hardware.h>
++#include <mach/regs-uart.h>
++#include <mach/irqs.h>
++
++#define S3C2440X_UARTS	3
++
++MODULE_LICENSE("GPL");
++
++irqreturn_t s3c2440x_uart_interrupt(int irq, void *dev_id,
++					struct pt_regs *regs)
++{
++	struct uart_port *port = dev_id;
++
++
++	return IRQ_HANDLED;
++	return IRQ_NONE;
++}
++
++static struct uart_ops s3c2440x_uart_ops = {
++};
++
++
++struct console s3c2440x_console;
++
++static uart_driver s3c2440x_uart_drv = {
++	.owner = THIS_MODULE,
++	.dev_name = "s3c2440x_serial",
++	.nr = S3C2440X_UARTS,
++	.cons = &s3c2440x_console,
++	.driver_name = "ttySAC",
++	.major = 204,
++	.minor = 16,
++};
++
++
++static uart_port s3c2440x_uart_ports[S3C2440X_UARTS] = {
++	[0] = {
++		.lock = SPIN_LOCK_UNLOCKED,
++		.iotype = UPIO_MEM,
++		.fifosize = 16,
++		.ops = &s3c2440x_ops,
++		.line = 0,
++	},
++	[1] = {
++		.lock = SPIN_LOCK_UNLOCKED,
++		.iotype = UPIO_MEM,
++		.fifosize = 16,
++		.ops = &s3c2440x_ops,
++		.line = 1,
++	},
++	[2] = {
++		.lock = SPIN_LOCK_UNLOCKED,
++		.iotype = UPIO_MEM,
++		.fifosize = 16,
++		.ops = &s3c2440x_ops,
++		.line = 2,
++	}
++};
++
++static int s3c2440x_serial_probe(struct platform_device *device)
++{
++	int index = device->id;
++	struct resource *mem;
++	int irq;
++	int ret;
++	mem = platform_get_resource(device, IORESOURCE_MEM, 0);
++	irq = platform_get_irq(device, 1);
++	
++	s3c2440x_uart_ports[index].membase = mem->start;
++	s3c2440x_uart_ports[index].irq = irq;
++	
++	ret = request_irq(irq, s3c2440x_uart_interrupt, 0, "s3c2440x_uart",
++				&s3c2440x_uart_ports[index]);
++	if (ret) {
++		early_printk("request_irq fail, port:%d\n", index);
++		goto out2;
++	}
++
++	ret = uart_add_one_port(&s3c2440x_uart_drv,
++				&s3c2440x_uart_ports[index]);
++
++	if (ret ) {
++		early_printk("uart_add_one_port fail, port:%d\n", index);
++		goto out1;
++	}
++
++	return 0;
++
++out1:
++	free_irq(irq, &s3c2440x_uart_ports[index]);
++out2:
++	return ret;
++
++}
++
++static int s3c2440x_serail_remove(struct platform_device *device)
++{
++	int irq;
++	irq = platform_get_irq(device, 1);
++	free_irq(irq, &s3c2440x_uart_ports[device->id]);
++	uart_remove_one_port(&s3c2440_uart_drv,
++				&s3c2440x_uart_ports[device->id]);
++}
++
++
++static struct platform_driver s3c2440x_serial = {
++	.probe = s3c2440x_serial_probe,
++	.remove = s3c2440x_serial_remove,
++	.driver = {
++		.name = "s3c2440x_serial",
++		.owner = THIS_MODULE,
++	},
++};
++
++
++static int s3c2440x_serial_init(void)
++{
++	int ret;
++	ret = uart_driver_register(&s3c2440x_uart_drv);
++	if (ret) 
++		goto out2;
++	ret = platform_driver_register(&s3c2440x_serial);
++	if (ret)
++		goto out1;
++
++	return ret;
++	
++out1:
++	uart_driver_unregister(&s3c2440x_uart_drv);
++out2:
++	return ret;
++}
++
++static void s3c2440x_serial_exit(void)
++{
++	uart_driver_unregister(&s3c2440x_uart_drv);
++	platform_driver_unregister(&s3c2440x_serial);	
++}
++
++module_init(s3c2440x_serial_init);
++module_exit(s3c2440x_serial_exit);
++
++/* console driver
++ *
++ *
++ */
++
++
++
++static void s3c2440_console_write(struct console *con, const char *buf,
++					unsigned size)
++{
++
++}
++
++static void s3c2440x_console_setup(struct console *con, char *options)
++{
++
++}
++
++static struct console s3c2440x_console = {
++	.name = "ttySAC",
++	.write = s3c2440x_console_write,
++	.index = 0,
++	.setup = s3c2440x_console_setup,
++};
++
++
++void s3c2440x_console_init(void)
++{
++	register_console(&s3c2440x_console);
++}
++
++console_initcall(s3c2440x_console_init);
+-- 
+1.7.1
+

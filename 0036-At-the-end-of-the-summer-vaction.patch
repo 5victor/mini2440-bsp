@@ -1,0 +1,174 @@
+From c98d00bc26e69668e0f524bcc6001ba130e7663c Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Thu, 25 Aug 2011 07:35:52 +0800
+Subject: [PATCH 36/36] At the end of the summer vaction
+
+---
+ arch/arm/mach-s3c2440x/include/mach/lcd.h |   38 ++++++++++++++++++++++
+ arch/arm/mach-s3c2440x/timer.c            |   11 ++++++
+ drivers/video/Kconfig                     |   15 +++++++++
+ drivers/video/Makefile                    |    1 +
+ drivers/video/s3c2440x.c                  |   49 +++++++++++++++++++++++++++++
+ 5 files changed, 114 insertions(+), 0 deletions(-)
+ create mode 100644 arch/arm/mach-s3c2440x/include/mach/lcd.h
+ create mode 100644 drivers/video/s3c2440x.c
+
+diff --git a/arch/arm/mach-s3c2440x/include/mach/lcd.h b/arch/arm/mach-s3c2440x/include/mach/lcd.h
+new file mode 100644
+index 0000000..ab1ecd1
+--- /dev/null
++++ b/arch/arm/mach-s3c2440x/include/mach/lcd.h
+@@ -0,0 +1,38 @@
++#ifndef __ARCH_ASM_LCD_H
++#define __ARCH_ASM_LCD_H
++
++#include <mach/hardware.h>
++
++#define LCD_BASE LCD_VA
++
++#define LCDCON1		(LCD_BASE + 0x0)
++#define LCDCON2		(LCD_BASE + 0x4)
++#define LCDCON3		(LCD_BASE + 0x8)
++#define LCDCON4		(LCD_BASE + 0xC)
++#define LCDCON5		(LCD_BASE + 0x10)
++#define LCDSADDR1	(LCD_BASE + 0x14)
++#define LCDSADDR2	(LCD_BASE + 0x18)
++#define LCDSADDR3	(LCD_BASE + 0x1C)
++#define REDLUT		(LCD_BASE + 0x20)
++#define GREENLUT	(LCD_BASE + 0x24)
++#define BLUELUT		(LCD_BASE + 0x28)
++#define DITHMODE	(LCD_BASE + 0x4C)
++#define TPAL		(LCD_BASE + 0x50)
++#define LCDINTPND	(LCD_BASE + 0x54)
++#define LCDSRCPND	(LCD_BASE + 0x58)
++#define LCDINTMSK	(LCD_BASE + 0x5C)
++#define TCONSEL		(LCD_BASE + 0x60)
++
++struct lcd_conf {
++	unsigned int pixclock;
++	unsigned int left_margin;
++	unsigned int right_margin;
++	unsigned int upper_margin;
++	unsigned int lower_margin;
++	unsigned int lcdcon[6];
++	unsigned int xres;
++	unsigned int yres;
++	unsigned int bpp;
++};
++
++#endif
+diff --git a/arch/arm/mach-s3c2440x/timer.c b/arch/arm/mach-s3c2440x/timer.c
+index 6709779..3c58b0f 100644
+--- a/arch/arm/mach-s3c2440x/timer.c
++++ b/arch/arm/mach-s3c2440x/timer.c
+@@ -1,3 +1,14 @@
++/* arch/arm/mach-s3c2440x/timer.c
++ *
++ * Copyright (c) 2011, Victor Wen <vic7tor@gmail.com>
++ * 
++ * 
++ *
++ * This program is free software. You can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 which
++ * published by the Free Software Foundation.
++ */
++
+ #include <asm/mach/time.h>
+ #include <linux/irq.h>
+ #include <linux/jiffies.h>
+diff --git a/drivers/video/Kconfig b/drivers/video/Kconfig
+index 27c1fb4..3f2281b 100644
+--- a/drivers/video/Kconfig
++++ b/drivers/video/Kconfig
+@@ -1973,6 +1973,21 @@ config FB_S3C_DEBUG_REGWRITE
+        ---help---
+          Show all register writes via printk(KERN_DEBUG)
+ 
++config FB_S3C2440X
++	tristate "s3c2440x LCD framebuffer support"
++	depends on FB
++	select FB_CFB_FILLRECT
++	select FB_CFB_COPYAREA
++	select FB_CFB_IMAGEBLIT
++	help
++	  ...
++
++config FB_S3C2440X_DEBUG
++	bool "s3c2440x LCD framebuffer debug"
++	depends on FB_S3C2440X
++	help
++	  ...
++
+ config FB_S3C2410
+ 	tristate "S3C2410 LCD framebuffer support"
+ 	depends on FB && ARCH_S3C2410
+diff --git a/drivers/video/Makefile b/drivers/video/Makefile
+index 485e8ed..bae6660 100644
+--- a/drivers/video/Makefile
++++ b/drivers/video/Makefile
+@@ -28,6 +28,7 @@ obj-$(CONFIG_FB_DDC)           += fb_ddc.o
+ obj-$(CONFIG_FB_DEFERRED_IO)   += fb_defio.o
+ 
+ # Hardware specific drivers go first
++obj-$(CONFIG_FB_S3C2440X)	  += s3c2440x.o
+ obj-$(CONFIG_FB_AMIGA)            += amifb.o c2p_planar.o
+ obj-$(CONFIG_FB_ARC)              += arcfb.o
+ obj-$(CONFIG_FB_CLPS711X)         += clps711xfb.o
+diff --git a/drivers/video/s3c2440x.c b/drivers/video/s3c2440x.c
+new file mode 100644
+index 0000000..daa3a5a
+--- /dev/null
++++ b/drivers/video/s3c2440x.c
+@@ -0,0 +1,49 @@
++/* linux/drivers/video/s3c2440x.c
++ * 	Copyright (c) 2011 Victor Wen
++ *
++ * S3C2440X LCD Framebuffer Driver
++ *
++ */
++
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/init.h>
++#include <linux/fb.h>
++#include <linux/platform_device.h>
++#include <mach/lcd.h>
++
++MODULE_LICENSE("GPL");
++
++
++static int s3c2440x_fb_probe(struct platform_device *device)
++{
++	struct fb_info *info;
++	struct lcd_conf *lcdconf;
++	
++	lcdconf = platform_get_data
++}
++
++static int s3c2440x_fb_remove(struct platform_device *device)
++{
++
++}
++
++
++static struct platform_driver s3c2440x_fb = {
++	.name = "s3c2440x-fb",
++	.probe = s3c2440x_fb_probe,
++	.remove = s3c2440x_fb_remove,
++};
++
++static int s3c2440x_fb_init(void)
++{
++	return platform_driver_register(&s3c2440x_fb);
++}
++
++static void s3c2440x_fb_exit(void)
++{
++	platform_driver_unregister(&s3c2440x_fb);
++}
++
++module_init(s3c2440x_fb_init);
++module_exit(s3c2440x_fb_exit);
+-- 
+1.7.1
+

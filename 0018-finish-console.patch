@@ -1,0 +1,289 @@
+From 9bc5c844124282081cbe58fba8f861f7e6e9bb5d Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Mon, 25 Jul 2011 15:56:21 +0800
+Subject: [PATCH 18/36] finish console
+
+---
+ drivers/serial/Kconfig    |    4 +-
+ drivers/serial/s3c2440x.c |  146 +++++++++++++++++++++++++++++++++++++--------
+ 2 files changed, 123 insertions(+), 27 deletions(-)
+
+diff --git a/drivers/serial/Kconfig b/drivers/serial/Kconfig
+index 4ac7902..361bb8b 100644
+--- a/drivers/serial/Kconfig
++++ b/drivers/serial/Kconfig
+@@ -519,10 +519,12 @@ config SERIAL_S3C2440
+ 	help
+ 	  Serial port support for the Samsung S3C2440, S3C2416 and S3C2442 SoC
+ 
+-config SERISL_S3C2440X
++config SERIAL_S3C2440X
+ 	tristate "S3C2440 Serial port Support(by Victor)"
+ 	depends on ARCH_S3C2440X
+ 	default y if ARCH_S3C2440X
++	select SERIAL_CORE_CONSOLE
++	select SERIAL_CORE
+ 	help
+ 	  Serial port support for the S3C2440X
+ 
+diff --git a/drivers/serial/s3c2440x.c b/drivers/serial/s3c2440x.c
+index d11a9ce..44aed59 100644
+--- a/drivers/serial/s3c2440x.c
++++ b/drivers/serial/s3c2440x.c
+@@ -3,33 +3,123 @@
+ #include <linux/module.h>
+ #include <linux/console.h>
+ #include <linux/serial_core.h>
+-#include <linux/platfrom_device.h>
++#include <linux/platform_device.h>
+ #include <linux/irq.h>
++#include <asm/io.h>
+ #include <mach/hardware.h>
+ #include <mach/regs-uart.h>
+ #include <mach/irqs.h>
++#include <mach/clock.h>
+ 
+ #define S3C2440X_UARTS	3
+ 
+ MODULE_LICENSE("GPL");
+ 
+-irqreturn_t s3c2440x_uart_interrupt(int irq, void *dev_id,
++irq_handler_t s3c2440x_uart_interrupt(int irq, void *dev_id,
+ 					struct pt_regs *regs)
+ {
+ 	struct uart_port *port = dev_id;
+ 
+ 
+ 	return IRQ_HANDLED;
+-	return IRQ_NONE;
++/*	return IRQ_NONE;*/
++}
++
++void s3c2440x_uart_startup(struct uart_port *port)
++{
++	int ret;
++	ret = request_irq(port->irq, s3c2440x_uart_interrupt,
++			0, "s3c2440x_uart", port);
++	if (ret) {
++		early_printk("s3c2440x_uart_startup:request_irq return %d\n"
++				,ret);
++	}
++
++
++}
++
++void s3c2440x_uart_shutdown(struct uart_port *port)
++{
++	free_irq(port->irq, port);
++}
++
++void s3c2440x_uart_set_termios(struct uart_port *port, struct ktermios *new,
++					struct ktermios *old)
++{
++	/*int baud;
++	int parity;
++	int bits;
++	int flow;*/
++	int ulcon = 0;
++	int baud;
++	int ubrdiv;
++	int ucon;
++	int pclk_rate;
++	struct clk *pclk;
++
++	baud = uart_get_baud_rate(port, new, old, 0, 115200 * 8);
++
++	/* baud configure*/
++	ucon = ioread16((unsigned int )port->membase + UCON);
++	ucon &= ~(3 << 10); /*pclk*/
++	iowrite16(ucon, (unsigned int )port->membase + UCON);
++
++	pclk = clk_get(NULL, "pclk");
++	if (pclk == NULL) {
++		early_printk("s3c2440x_uart_set_termios:clk_get fail\n");
++		return ;
++	}
++	
++	pclk_rate = clk_get_rate(pclk);
++
++	ubrdiv = pclk_rate / (baud * 16) - 1;
++	iowrite16(ubrdiv, (unsigned int)port->membase + UBRDIV);
++
++	if ((new->c_cflag & CS7) == CS7) {
++		ulcon |= 2 << 0;  /*bits = 7;*/
++	} else {
++		ulcon |= 3 << 0;  /*bits = 8;*/
++	}
++
++	if ((new->c_cflag & PARODD) == PARODD) {
++		ulcon |= 4 << 3;	/*parity = 'o';*/
++	} else {
++		ulcon |= 5 << 3;	/*parity = 'e';*/
++	}
++
++	if ((new->c_cflag & CRTSCTS) == CRTSCTS) {
++			/*flow == 'r';*/
++
++	}
++	
++	iowrite8(ulcon, (unsigned int)port->membase + ULCON);
++
++	return ;
++}
++
++void s3c2440x_uart_poll_put_char(struct uart_port *port, unsigned char c)
++{
++	int utrstat;
++	while(1) {
++		utrstat = ioread8((unsigned int)port->membase + UTRSTAT);
++		if (utrstat & (1 << 1))
++			break;
++	}
++
++	iowrite8(c, (unsigned int)port->membase + UTXH);
+ }
+ 
+ static struct uart_ops s3c2440x_uart_ops = {
++	.startup = s3c2440x_uart_startup,
++	.shutdown = s3c2440x_uart_shutdown,
++	.set_termios = s3c2440x_uart_set_termios,
++
+ };
+ 
+ 
+-struct console s3c2440x_console;
++static struct console s3c2440x_console;
+ 
+-static uart_driver s3c2440x_uart_drv = {
++static struct uart_driver s3c2440x_uart_drv = {
+ 	.owner = THIS_MODULE,
+ 	.dev_name = "s3c2440x_serial",
+ 	.nr = S3C2440X_UARTS,
+@@ -40,26 +130,26 @@ static uart_driver s3c2440x_uart_drv = {
+ };
+ 
+ 
+-static uart_port s3c2440x_uart_ports[S3C2440X_UARTS] = {
++static struct uart_port s3c2440x_uart_ports[S3C2440X_UARTS] = {
+ 	[0] = {
+ 		.lock = SPIN_LOCK_UNLOCKED,
+ 		.iotype = UPIO_MEM,
+ 		.fifosize = 16,
+-		.ops = &s3c2440x_ops,
++		.ops = &s3c2440x_uart_ops,
+ 		.line = 0,
+ 	},
+ 	[1] = {
+ 		.lock = SPIN_LOCK_UNLOCKED,
+ 		.iotype = UPIO_MEM,
+ 		.fifosize = 16,
+-		.ops = &s3c2440x_ops,
++		.ops = &s3c2440x_uart_ops,
+ 		.line = 1,
+ 	},
+ 	[2] = {
+ 		.lock = SPIN_LOCK_UNLOCKED,
+ 		.iotype = UPIO_MEM,
+ 		.fifosize = 16,
+-		.ops = &s3c2440x_ops,
++		.ops = &s3c2440x_uart_ops,
+ 		.line = 2,
+ 	}
+ };
+@@ -76,13 +166,6 @@ static int s3c2440x_serial_probe(struct platform_device *device)
+ 	s3c2440x_uart_ports[index].membase = mem->start;
+ 	s3c2440x_uart_ports[index].irq = irq;
+ 	
+-	ret = request_irq(irq, s3c2440x_uart_interrupt, 0, "s3c2440x_uart",
+-				&s3c2440x_uart_ports[index]);
+-	if (ret) {
+-		early_printk("request_irq fail, port:%d\n", index);
+-		goto out2;
+-	}
+-
+ 	ret = uart_add_one_port(&s3c2440x_uart_drv,
+ 				&s3c2440x_uart_ports[index]);
+ 
+@@ -100,12 +183,9 @@ out2:
+ 
+ }
+ 
+-static int s3c2440x_serail_remove(struct platform_device *device)
++static int s3c2440x_serial_remove(struct platform_device *device)
+ {
+-	int irq;
+-	irq = platform_get_irq(device, 1);
+-	free_irq(irq, &s3c2440x_uart_ports[device->id]);
+-	uart_remove_one_port(&s3c2440_uart_drv,
++	uart_remove_one_port(&s3c2440x_uart_drv,
+ 				&s3c2440x_uart_ports[device->id]);
+ }
+ 
+@@ -123,7 +203,7 @@ static struct platform_driver s3c2440x_serial = {
+ static int s3c2440x_serial_init(void)
+ {
+ 	int ret;
+-	ret = uart_driver_register(&s3c2440x_uart_drv);
++	ret = uart_register_driver(&s3c2440x_uart_drv);
+ 	if (ret) 
+ 		goto out2;
+ 	ret = platform_driver_register(&s3c2440x_serial);
+@@ -133,14 +213,14 @@ static int s3c2440x_serial_init(void)
+ 	return ret;
+ 	
+ out1:
+-	uart_driver_unregister(&s3c2440x_uart_drv);
++	uart_unregister_driver(&s3c2440x_uart_drv);
+ out2:
+ 	return ret;
+ }
+ 
+ static void s3c2440x_serial_exit(void)
+ {
+-	uart_driver_unregister(&s3c2440x_uart_drv);
++	uart_unregister_driver(&s3c2440x_uart_drv);
+ 	platform_driver_unregister(&s3c2440x_serial);	
+ }
+ 
+@@ -154,15 +234,28 @@ module_exit(s3c2440x_serial_exit);
+ 
+ 
+ 
+-static void s3c2440_console_write(struct console *con, const char *buf,
++static void s3c2440x_console_write(struct console *con, const char *buf,
+ 					unsigned size)
+ {
+-
++	int index = con->index;
++	uart_console_write(&s3c2440x_uart_ports[index], buf, size,
++			s3c2440x_uart_poll_put_char);
+ }
+ 
+ static void s3c2440x_console_setup(struct console *con, char *options)
+ {
++	int baud = 9600;
++	int bits = 8;
++	int parity = 'n';
++	int flow = 'n';
+ 
++	struct uart_port *port = &s3c2440x_uart_ports[con->index];
++	s3c2440x_uart_ports[con->index].membase = con->data;
++
++	if (options) {
++		uart_parse_options(options, &baud, &parity, &bits, &flow);
++	}
++	return uart_set_options(port, con, baud, parity, bits, flow);
+ }
+ 
+ static struct console s3c2440x_console = {
+@@ -170,6 +263,7 @@ static struct console s3c2440x_console = {
+ 	.write = s3c2440x_console_write,
+ 	.index = 0,
+ 	.setup = s3c2440x_console_setup,
++	.data = UART0_VA,
+ };
+ 
+ 
+-- 
+1.7.1
+

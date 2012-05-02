@@ -1,0 +1,52 @@
+From f8306506aae210878394d28b173b19309a7091c9 Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Fri, 22 Jul 2011 15:33:19 +0800
+Subject: [PATCH 13/36] fix timer_init error
+
+---
+ arch/arm/mach-s3c2440x/include/mach/hardware.h |    4 ++--
+ arch/arm/mach-s3c2440x/timer.c                 |    6 +++---
+ 2 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/arch/arm/mach-s3c2440x/include/mach/hardware.h b/arch/arm/mach-s3c2440x/include/mach/hardware.h
+index eb9c116..7cb5d8f 100644
+--- a/arch/arm/mach-s3c2440x/include/mach/hardware.h
++++ b/arch/arm/mach-s3c2440x/include/mach/hardware.h
+@@ -15,7 +15,7 @@
+ #define UART2_PA	0x50008000
+ 
+ 
+-#define MAP_VA_BASE	0xFF000000
++#define MAP_VA_BASE	0xF0000000
+ 
+ #define MAP_VA(x)	((x - MEM_PA) + MAP_VA_BASE)
+ #define MAP_SIZE	SZ_1K
+@@ -29,7 +29,7 @@
+ #define	NAND_VA		MAP_VA(NAND_PA)
+ #define	CAM_VA		MAP_VA(CAM_PA)
+ #define	TIMER_VA	MAP_VA(TIMER_PA)
+-#define	UART0_VA	0xFE000000
++#define	UART0_VA	0xEE000000
+ #define	UART1_VA	MAP_VA(UART1_PA)
+ #define	UART2_VA	MAP_VA(UART2_PA)
+ 
+diff --git a/arch/arm/mach-s3c2440x/timer.c b/arch/arm/mach-s3c2440x/timer.c
+index 77159f8..02c07e8 100644
+--- a/arch/arm/mach-s3c2440x/timer.c
++++ b/arch/arm/mach-s3c2440x/timer.c
+@@ -30,9 +30,9 @@ static struct irqaction s3c2440x_timer_action = {
+ 
+ static void s3c2440x_timer4_setup(void)
+ {
+-	iowrite32(MAP_VA(TIMER_PA) + TCFG1, 4 << 16);
+-	iowrite16(MAP_VA(TIMER_PA) + TCNTB4, LATCH);
+-	iowrite32(MAP_VA(TIMER_PA) + TCON, 1 << 22 | 1 << 20);
++	iowrite32(4 << 16, TIMER_VA + TCFG1);
++	iowrite16(LATCH, TIMER_VA + TCNTB4);
++	iowrite32(1 << 22 | 1 << 20, TIMER_VA + TCON);
+ }
+ 
+ static void s3c2440x_timer_init(void)
+-- 
+1.7.1
+

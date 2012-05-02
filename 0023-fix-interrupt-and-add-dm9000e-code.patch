@@ -1,0 +1,436 @@
+From 6cf0ad0ab0850b90a67c1544f38a180786b3963f Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Tue, 2 Aug 2011 12:12:46 +0800
+Subject: [PATCH 23/36] fix interrupt and add dm9000e code
+
+---
+ arch/arm/mach-s3c2440x/include/mach/entry-macro.S |    3 +
+ arch/arm/mach-s3c2440x/include/mach/irqs.h        |   23 ++++++-
+ arch/arm/mach-s3c2440x/io.c                       |    1 +
+ arch/arm/mach-s3c2440x/irq.c                      |   62 +++++++++++++--
+ arch/arm/mach-s3c2440x/mach-mini2440.c            |   26 +++++++
+ drivers/net/dm9000e.c                             |   82 +++++++++++++++++----
+ drivers/serial/s3c2440x.c                         |   21 ++++--
+ 7 files changed, 187 insertions(+), 31 deletions(-)
+
+diff --git a/arch/arm/mach-s3c2440x/include/mach/entry-macro.S b/arch/arm/mach-s3c2440x/include/mach/entry-macro.S
+index c162869..7bdaee5 100644
+--- a/arch/arm/mach-s3c2440x/include/mach/entry-macro.S
++++ b/arch/arm/mach-s3c2440x/include/mach/entry-macro.S
+@@ -15,6 +15,9 @@
+ 	teq \irqstat, #0
+ 	beq 2f
+ 	ldr \irqnr, [\base, #INTOFFSET]
++	ldr \tmp, [\base, #INTPND]
++	str \tmp, [\base, #SRCPND]
++	str \tmp, [\base, #INTPND]
+ 2:
+ 	@ 
+ .endm
+diff --git a/arch/arm/mach-s3c2440x/include/mach/irqs.h b/arch/arm/mach-s3c2440x/include/mach/irqs.h
+index 0b0cccc..b256f13 100644
+--- a/arch/arm/mach-s3c2440x/include/mach/irqs.h
++++ b/arch/arm/mach-s3c2440x/include/mach/irqs.h
+@@ -56,7 +56,28 @@
+ 
+ /* extern interrupt*/
+ 
+-#define NR_IRQS		(46 + 1)
++#define EINT4		47
++#define EINT5		48
++#define EINT6		49
++#define EINT7		50
++#define EINT8		51
++#define EINT9		52
++#define EINT10		53
++#define EINT11		54
++#define EINT12		55
++#define EINT13		56
++#define EINT14		57
++#define EINT15		58
++#define EINT16		59
++#define EINT17		60
++#define EINT18		61
++#define EINT19		62
++#define EINT20		63
++#define EINT21		64
++#define EINT22		65
++#define EINT23		66
++
++#define NR_IRQS		(66 + 1)
+ 
+ void s3c2440x_init_irq(void);
+ 
+diff --git a/arch/arm/mach-s3c2440x/io.c b/arch/arm/mach-s3c2440x/io.c
+index 136e223..a404eab 100644
+--- a/arch/arm/mach-s3c2440x/io.c
++++ b/arch/arm/mach-s3c2440x/io.c
+@@ -14,6 +14,7 @@ static struct map_desc s3c2440x_map_desc[] __initdata = {
+ 	MAP_DESC_ENTRY(TIMER_VA, TIMER_PA, MAP_SIZE),
+ 	MAP_DESC_ENTRY(UART0_VA, UART0_PA, MAP_SIZE),
+ 	MAP_DESC_ENTRY(CLK_PM_VA, CLK_PM_PA, MAP_SIZE),
++	MAP_DESC_ENTRY(GPIO_VA, GPIO_PA, MAP_SIZE),
+ };
+ 
+ void __init s3c2440x_map_io(void)
+diff --git a/arch/arm/mach-s3c2440x/irq.c b/arch/arm/mach-s3c2440x/irq.c
+index b268db5..dc14983 100644
+--- a/arch/arm/mach-s3c2440x/irq.c
++++ b/arch/arm/mach-s3c2440x/irq.c
+@@ -4,16 +4,17 @@
+ #include <mach/hardware.h>
+ #include <mach/irqs.h>
+ #include <mach/regs-int.h>
++#include <mach/regs-gpio.h>
+ 
+ 
+-void s3c2440x_irq_ack(unsigned int irq)
++void s3c2440x_irq_base_ack(unsigned int irq)
+ {
+ 	unsigned int i = 1 << irq;
+ 	iowrite32(i, (INT_VA + SRCPND));
+ 	iowrite32(i, (INT_VA + INTPND));
+ }
+ 
+-void s3c2440x_irq_mask(unsigned int irq)
++void s3c2440x_irq_base_mask(unsigned int irq)
+ {
+ 	unsigned int mask;
+ 	mask = ioread32(INT_VA + INTMSK);
+@@ -22,7 +23,7 @@ void s3c2440x_irq_mask(unsigned int irq)
+ 
+ }
+ 
+-void s3c2440x_irq_unmask(unsigned int irq)
++void s3c2440x_irq_base_unmask(unsigned int irq)
+ {
+ 	unsigned int mask;
+ 	mask = ioread32(INT_VA + INTMSK);
+@@ -30,13 +31,25 @@ void s3c2440x_irq_unmask(unsigned int irq)
+ 	iowrite32(mask, INT_VA + INTMSK);
+ }
+ 
+-struct irq_chip s3c2440x_chip = {
+-	.name	= "s3c2440x_chip",
+-	.ack	= s3c2440x_irq_ack,
+-	.mask	= s3c2440x_irq_mask,
+-	.unmask	= s3c2440x_irq_unmask,
++static struct irq_chip s3c2440x_chip_base = {
++	.name	= "s3c2440x_chip_base",
++	.ack	= s3c2440x_irq_base_ack,
++	.mask	= s3c2440x_irq_base_mask,
++	.unmask	= s3c2440x_irq_base_unmask,
+ };
+ 
++/*
++static void s3c2440x_irq_demux_dummy(void) {
++	return;
++}
++
++static struct irq_chip s3c2440x_chip_demux = {
++	.name	= "s3c2440x_chip_demux",
++	.ack	= s3c2440x_irq_demux_dummy,
++	.mask	= s3c2440x_irq_demux_dummy,
++	.unmask = s3c2440x_irq_demux_dummy,
++};
++*/
+ static void s3c2440x_uart_demux(unsigned int start)
+ {
+ 	int subsrc = ioread32(INT_VA + SUBSRCPND);
+@@ -69,6 +82,29 @@ static void s3c2440x_uart_demux2(unsigned int irq, struct irq_desc *desc)
+ 	s3c2440x_uart_demux(INT_RXD2);
+ }
+ 
++static void s3c2440x_eint_demux(int start, int end)
++{
++	int eintpend = ioread32(GPIO_VA + EINTPEND);
++	int eintmask = ioread32(GPIO_VA + EINTPEND);
++	int i;
++	eintpend &= ~eintmask;
++	for (i = start; i < end; i++) {
++		if (eintpend & (1 << i)) {
++			generic_handle_irq(EINT4 + i - 4);
++		}
++	}
++}
++
++static void s3c2440x_eint_demux1(unsigned int irq, struct irq_desc *desc)
++{
++	s3c2440x_eint_demux(4, 8);
++}
++
++static void s3c2440x_eint_demux2(unsigned int irq, struct irq_desc *desc)
++{
++	s3c2440x_eint_demux(8, 24);
++}
++
+ void __init s3c2440x_init_irq(void)
+ {
+ 	int irq;
+@@ -76,13 +112,21 @@ void __init s3c2440x_init_irq(void)
+ 		switch (irq) {
+ 
+ 		default:
+-			set_irq_chip(irq, &s3c2440x_chip);
++			set_irq_chip(irq, &s3c2440x_chip_base);
+ 			set_irq_handler(irq, handle_level_irq);
++			set_irq_flags(irq, IRQF_VALID | IRQF_PROBE);
+ 		}
+ 	}
+ 	
++	for (irq = BASE_IRQ_NUM; irq < NR_IRQS; irq++) {
++		set_irq_handler(irq, handle_simple_irq);
++		set_irq_flags(irq, IRQF_VALID | IRQF_PROBE);
++	}
++
+ 	set_irq_chained_handler(INT_UART0, s3c2440x_uart_demux0);
+ 	set_irq_chained_handler(INT_UART1, s3c2440x_uart_demux1);
+ 	set_irq_chained_handler(INT_UART2, s3c2440x_uart_demux2);
++	set_irq_chained_handler(EINT4_7, s3c2440x_eint_demux1);
++	set_irq_chained_handler(EINT8_23, s3c2440x_eint_demux2);
+ }
+ 
+diff --git a/arch/arm/mach-s3c2440x/mach-mini2440.c b/arch/arm/mach-s3c2440x/mach-mini2440.c
+index f9771b0..02077b3 100644
+--- a/arch/arm/mach-s3c2440x/mach-mini2440.c
++++ b/arch/arm/mach-s3c2440x/mach-mini2440.c
+@@ -88,10 +88,36 @@ static struct platform_device s3c2440x_uarts[S3C2440X_UART_NUM] = {
+ 	},
+ };
+ 
++static struct resource dm9000e_res[] = {
++	[0] = {
++		.start	= EINT7,
++		.end	= EINT7,
++		.flags	= IORESOURCE_IRQ,
++	},
++	[1] = {
++		.start	= 0x20000000,
++		.end	= 0x20000000,
++		.flags	= IORESOURCE_MEM,
++	},
++	[2] = {
++		.start	= 0x20000004,
++		.end	= 0x20000004,
++		.flags	= IORESOURCE_MEM,
++	},
++};
++
++static struct platform_device dm9000e_device = {
++	.name = "dm9000e",
++	.resource = dm9000e_res,
++	.num_resources = ARRAY_SIZE(dm9000e_res),
++};
++
++
+ static struct platform_device *mini2440_devices[] __initdata = {
+ 	s3c2440x_uarts,
+ 	s3c2440x_uarts + 1,
+ 	s3c2440x_uarts + 2,
++	&dm9000e_device,
+ };
+ 
+ 
+diff --git a/drivers/net/dm9000e.c b/drivers/net/dm9000e.c
+index 361fac6..13c540b 100644
+--- a/drivers/net/dm9000e.c
++++ b/drivers/net/dm9000e.c
+@@ -5,6 +5,9 @@
+ #include <linux/platform_device.h>
+ #include <linux/spinlock.h>
+ #include <linux/err.h>
++#include <linux/etherdevice.h>
++#include <mach/hardware.h>
++#include <mach/regs-gpio.h>
+ #include "dm9000.h"
+ 
+ #define WATCHDOG_TIMEOUT	5000
+@@ -18,7 +21,7 @@
+ struct dm9000_config {
+ 	
+ };
+-struct dm9000_info {
++struct dm9000e_info {
+ 	spinlock_t lock;
+ 	int irq;
+ 	void *mem_reg;
+@@ -26,19 +29,55 @@ struct dm9000_info {
+ };
+ 
+ 
++static int dm9000e_ndo_init(struct net_device *dev)
++{
++	struct dm9000e_info *info = netdev_priv(dev);
++	int vendor_id;
++	int product_id;
++	iowrite8(DM9000_VIDH, info->mem_reg);
++	vendor_id = ioread8(info->mem_data);
++	vendor_id <<= 8;
++	iowrite8(DM9000_VIDL, info->mem_reg);
++	vendor_id |= ioread8(info->mem_data);
++	printk(KERN_INFO "dm9000 vendor id:0x%4x\n", vendor_id);
++
++	iowrite8(DM9000_PIDH, info->mem_reg);
++	product_id = ioread8(info->mem_data);
++	product_id <<= 8;
++	iowrite8(DM9000_PIDL, info->mem_reg);
++	product_id |= ioread8(info->mem_data);
++	printk(KERN_INFO "dm9000 product id:0x%4x\n", product_id);
++
++	return 0;
++}
++
++static int dm9000e_ndo_open(struct net_device *dev)
++{
++
++}
++
++static int dm9000e_ndo_stop(struct net_device *dev)
++{
+ 
++}
++
++static netdev_tx_t dm9000e_ndo_start_xmit(struct sk_buff *skb,
++					struct net_device *dev)
++{
++
++}
+ 
+ static struct net_device_ops dm9000e_ops = {
+-	.init =,
+-	.ndo_open =,
+-	.ndo_stop =,
+-	.ndo_start_xmit = ,
++	.ndo_init = dm9000e_ndo_init,
++	.ndo_open = dm9000e_ndo_open,
++	.ndo_stop = dm9000e_ndo_stop,
++	.ndo_start_xmit = dm9000e_ndo_start_xmit,
+ 	.ndo_set_mac_address = eth_mac_addr,
+ };
+ 
+ static irqreturn_t dm9000e_irq_handler(int irq, void *dev_id)
+ {
+-
++	return IRQ_HANDLED;
+ }
+ 
+ static int dm9000e_probe(struct platform_device *device)
+@@ -48,28 +87,43 @@ static int dm9000e_probe(struct platform_device *device)
+ 	int ret = 0;
+ 	struct resource *res;
+ 	printk(KERN_INFO "dm9000e:%s\n", __func__);
+-	netdev = alloc_etherdev(sizeof(dm9000e_info));
++	netdev = alloc_etherdev(sizeof(struct dm9000e_info));
+ 	if (!netdev) {
+ 		printk(KERN_INFO "%s:alloc_etherdev fail\n", __func__);
+-		ret = -NOMEM;
++		ret = -ENOMEM;
+ 		goto out1;
+ 	}
+-	netdev->net_device_ops = &dm9000e_ops;
++	netdev->netdev_ops = &dm9000e_ops;
+ 	netdev->watchdog_timeo = msecs_to_jiffies(WATCHDOG_TIMEOUT);
+-	
++	info = netdev_priv(netdev);
+ 	info->irq = platform_get_irq(device, 0);
++	printk(KERN_INFO "%s:irq %d\n", __func__, info->irq);
++	res = platform_get_resource(device, IORESOURCE_MEM, 0);
++	printk(KERN_INFO "dm9000 index register phy addr:0x%8x\n", res->start);
++	info->mem_reg = ioremap(res->start, 4);
+ 	res = platform_get_resource(device, IORESOURCE_MEM, 1);
+-	info->mem_reg = ioremap(res->start, res->end - res->start);
+-	res = platform_get_resource(device, IORESOURCE_MEM, 2);
+-	info->mem_data = ioremap(res->start, res->end - res->start);
++	printk(KERN_INFO "dm9000 data register phy addr:0x%8x\n", res->start);
++	info->mem_data = ioremap(res->start, 4);
++
+ 
+ 	ret = request_irq(info->irq, dm9000e_irq_handler, 0, "dm9000e",
+ 				netdev);
+ 	if (ret) {
+-		printk(KERN_INFO "%s:request_irq fail\n", __func__);
++		printk(KERN_INFO "%s:request_irq fail with %d\n", 
++					__func__, ret);
+ 		goto out2;
+ 	}
+ 	
++	/* gpio init*/
++	int gpfcon = ioread16(GPIO_VA + GPFCON);
++	gpfcon &= ~(3 << 14);
++	gpfcon |= 2 << 14;
++	iowrite16(gpfcon, GPIO_VA + GPFCON);
++	
++	int extint0 = ioread32(GPIO_VA + EXTINT0);
++	extint0 &= ~(7 << 28);
++	extint0 |= (1 << 28);
++
+ 	ret = register_netdev(netdev);
+ 	
+ 	if (ret) {
+diff --git a/drivers/serial/s3c2440x.c b/drivers/serial/s3c2440x.c
+index c63872c..06e6ae7 100644
+--- a/drivers/serial/s3c2440x.c
++++ b/drivers/serial/s3c2440x.c
+@@ -109,8 +109,8 @@ static void s3c2440x_uart_startup(struct uart_port *port)
+ 	int irq_rx;
+ 	int irq_tx;
+ 
+-	irq_rx = platform_get_irq(port->private_data, 1);
+-	irq_tx = platform_get_irq(port->private_data, 2);
++	irq_rx = platform_get_irq(port->private_data, 0);
++	irq_tx = platform_get_irq(port->private_data, 1);
+ 
+ 	ret = request_irq(irq_rx, s3c2440x_uart_irq_rx,
+ 			0, "s3c2440x_uart", port);
+@@ -140,8 +140,8 @@ static void s3c2440x_uart_shutdown(struct uart_port *port)
+ 	int irq_rx;
+ 	int irq_tx;
+ 	
+-	irq_rx = platform_get_irq(port->private_data, 1);
+-	irq_tx = platform_get_irq(port->private_data, 2);
++	irq_rx = platform_get_irq(port->private_data, 0);
++	irq_tx = platform_get_irq(port->private_data, 1);
+ 
+ 	free_irq(irq_rx, port);
+ 	free_irq(irq_tx, port);
+@@ -288,6 +288,7 @@ static int s3c2440x_serial_probe(struct platform_device *device)
+ 	int index = device->id;
+ 	struct resource *mem;
+ 	int ret;
++	printk(KERN_INFO "%s: uart%d\n", __func__, device->id);
+ 	mem = platform_get_resource(device, IORESOURCE_MEM, 0);
+ 	
+ 	s3c2440x_uart_ports[index].membase = mem->start;
+@@ -314,7 +315,7 @@ static struct platform_driver s3c2440x_serial = {
+ 	.probe = s3c2440x_serial_probe,
+ 	.remove = s3c2440x_serial_remove,
+ 	.driver = {
+-		.name = "s3c2440x_serial",
++		.name = "s3c2440x_uart",
+ 		.owner = THIS_MODULE,
+ 	},
+ };
+@@ -323,12 +324,18 @@ static struct platform_driver s3c2440x_serial = {
+ static int s3c2440x_serial_init(void)
+ {
+ 	int ret;
++	printk(KERN_INFO "%s\n", __func__);
+ 	ret = uart_register_driver(&s3c2440x_uart_drv);
+-	if (ret) 
++	if (ret) {
++		printk(KERN_INFO "%s:uart_regiser_driver fail\n", __func__);
+ 		goto out2;
++	}
+ 	ret = platform_driver_register(&s3c2440x_serial);
+-	if (ret)
++	if (ret) {
++		printk(KERN_INFO "%s:platform_driver_register fail\n",
++					__func__);
+ 		goto out1;
++	}
+ 
+ 	return ret;
+ 	
+-- 
+1.7.1
+

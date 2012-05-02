@@ -1,0 +1,163 @@
+From b03226ff73ae7c00a3318ed6231da51a1caab7a7 Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Sun, 31 Jul 2011 17:41:43 +0800
+Subject: [PATCH 22/36] add dm9000e
+
+---
+ drivers/net/Kconfig   |    5 ++
+ drivers/net/Makefile  |    2 +
+ drivers/net/dm9000e.c |  113 +++++++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 120 insertions(+), 0 deletions(-)
+ create mode 100644 drivers/net/dm9000e.c
+
+diff --git a/drivers/net/Kconfig b/drivers/net/Kconfig
+index 4f1755b..2122937 100644
+--- a/drivers/net/Kconfig
++++ b/drivers/net/Kconfig
+@@ -28,6 +28,11 @@ menuconfig NETDEVICES
+ # that for each of the symbols.
+ if NETDEVICES
+ 
++config DM9000E
++	tristate "DM9000E support(by Victor)"
++	help
++	  DM9000E support(by Victor)
++
+ config IFB
+ 	tristate "Intermediate Functional Block support"
+ 	depends on NET_CLS_ACT
+diff --git a/drivers/net/Makefile b/drivers/net/Makefile
+index b90738d..b17ebad 100644
+--- a/drivers/net/Makefile
++++ b/drivers/net/Makefile
+@@ -10,6 +10,8 @@ obj-$(CONFIG_TI_DAVINCI_EMAC) += davinci_emac.o
+ obj-$(CONFIG_TI_DAVINCI_MDIO) += davinci_mdio.o
+ obj-$(CONFIG_TI_DAVINCI_CPDMA) += davinci_cpdma.o
+ 
++obj-$(CONFIG_DM9000E) += dm9000e.o
++
+ obj-$(CONFIG_E1000) += e1000/
+ obj-$(CONFIG_E1000E) += e1000e/
+ obj-$(CONFIG_IBM_NEW_EMAC) += ibm_newemac/
+diff --git a/drivers/net/dm9000e.c b/drivers/net/dm9000e.c
+new file mode 100644
+index 0000000..361fac6
+--- /dev/null
++++ b/drivers/net/dm9000e.c
+@@ -0,0 +1,113 @@
++#include <linux/init.h>
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/netdevice.h>
++#include <linux/platform_device.h>
++#include <linux/spinlock.h>
++#include <linux/err.h>
++#include "dm9000.h"
++
++#define WATCHDOG_TIMEOUT	5000
++
++/*
++   res index 0:irq
++   res index 1:mem_reg
++   res index 2:mem_data
++   */
++
++struct dm9000_config {
++	
++};
++struct dm9000_info {
++	spinlock_t lock;
++	int irq;
++	void *mem_reg;
++	void *mem_data;
++};
++
++
++
++
++static struct net_device_ops dm9000e_ops = {
++	.init =,
++	.ndo_open =,
++	.ndo_stop =,
++	.ndo_start_xmit = ,
++	.ndo_set_mac_address = eth_mac_addr,
++};
++
++static irqreturn_t dm9000e_irq_handler(int irq, void *dev_id)
++{
++
++}
++
++static int dm9000e_probe(struct platform_device *device)
++{
++	struct dm9000e_info *info;
++	struct net_device *netdev;
++	int ret = 0;
++	struct resource *res;
++	printk(KERN_INFO "dm9000e:%s\n", __func__);
++	netdev = alloc_etherdev(sizeof(dm9000e_info));
++	if (!netdev) {
++		printk(KERN_INFO "%s:alloc_etherdev fail\n", __func__);
++		ret = -NOMEM;
++		goto out1;
++	}
++	netdev->net_device_ops = &dm9000e_ops;
++	netdev->watchdog_timeo = msecs_to_jiffies(WATCHDOG_TIMEOUT);
++	
++	info->irq = platform_get_irq(device, 0);
++	res = platform_get_resource(device, IORESOURCE_MEM, 1);
++	info->mem_reg = ioremap(res->start, res->end - res->start);
++	res = platform_get_resource(device, IORESOURCE_MEM, 2);
++	info->mem_data = ioremap(res->start, res->end - res->start);
++
++	ret = request_irq(info->irq, dm9000e_irq_handler, 0, "dm9000e",
++				netdev);
++	if (ret) {
++		printk(KERN_INFO "%s:request_irq fail\n", __func__);
++		goto out2;
++	}
++	
++	ret = register_netdev(netdev);
++	
++	if (ret) {
++		printk(KERN_INFO "%s:register_netdev fail\n", __func__);
++		goto out2;
++	}
++
++	return 0;
++out2:
++	free_netdev(netdev);
++out1:
++	return ret;
++
++}
++
++static int dm9000e_remove(struct platform_device *device)
++{
++	printk(KERN_INFO "dm9000e:%s\n", __func__);
++}
++
++static struct platform_driver dm9000e_driver = {
++	.probe = dm9000e_probe,
++	.remove = dm9000e_remove,
++	.driver = {
++		.owner = THIS_MODULE,
++		.name = "dm9000e",
++	},
++};
++
++static int dm9000e_init(void)
++{
++	return platform_driver_register(&dm9000e_driver);
++}
++
++static void dm9000e_exit(void)
++{
++	return platform_driver_unregister(&dm9000e_driver);
++}
++
++module_init(dm9000e_init);
++module_exit(dm9000e_exit);
+-- 
+1.7.1
+

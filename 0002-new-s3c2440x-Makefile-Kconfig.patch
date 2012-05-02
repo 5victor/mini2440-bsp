@@ -1,0 +1,28 @@
+From 69157ada06be96b237a29a8bc432c24e7725100b Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Fri, 15 Jul 2011 21:28:26 +0800
+Subject: [PATCH 02/36] new s3c2440x Makefile Kconfig
+
+---
+ arch/arm/mach-s3c2440x/Makefile.boot |    1 +
+ 1 files changed, 1 insertions(+), 0 deletions(-)
+ create mode 100644 arch/arm/mach-s3c2440x/Kconfig
+ create mode 100644 arch/arm/mach-s3c2440x/Makefile
+ create mode 100644 arch/arm/mach-s3c2440x/Makefile.boot
+
+diff --git a/arch/arm/mach-s3c2440x/Kconfig b/arch/arm/mach-s3c2440x/Kconfig
+new file mode 100644
+index 0000000..e69de29
+diff --git a/arch/arm/mach-s3c2440x/Makefile b/arch/arm/mach-s3c2440x/Makefile
+new file mode 100644
+index 0000000..e69de29
+diff --git a/arch/arm/mach-s3c2440x/Makefile.boot b/arch/arm/mach-s3c2440x/Makefile.boot
+new file mode 100644
+index 0000000..dd5b95e
+--- /dev/null
++++ b/arch/arm/mach-s3c2440x/Makefile.boot
+@@ -0,0 +1 @@
++zreladdr-y := 0x30008000
+-- 
+1.7.1
+

@@ -1,0 +1,276 @@
+From bfde73aaed085132e2b1a04e803bcac5259a271a Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Tue, 9 Aug 2011 19:41:07 +0800
+Subject: [PATCH 32/36] dm9000 yet have a bug, it may in interrupt handle
+
+---
+ arch/arm/Kconfig            |    2 +-
+ drivers/misc/mfrc522/rfid.c |    1 -
+ drivers/net/Kconfig         |   14 +++++--
+ drivers/net/Makefile        |    1 +
+ drivers/net/dm9000e.c       |   93 ++++++++++++++++++++++++++++++++++++++-----
+ 5 files changed, 95 insertions(+), 16 deletions(-)
+
+diff --git a/arch/arm/Kconfig b/arch/arm/Kconfig
+index 78d16bf..8224ce6 100644
+--- a/arch/arm/Kconfig
++++ b/arch/arm/Kconfig
+@@ -213,7 +213,7 @@ config ARCH_S3C2440X
+ 	bool "S3C2440 machine porting by victor"
+ 	select CPU_ARM920T
+ 	select LEDS
+-	select ARCH_REQUIRE_GPIOLIB
++	select ARCH_WANT_OPTIONAL_GPIOLIB
+ 	help
+ 	  This enable suport for s3c2440 machine, it porting by victor
+ 
+diff --git a/drivers/misc/mfrc522/rfid.c b/drivers/misc/mfrc522/rfid.c
+index 7c9c2dc..8e812b5 100644
+--- a/drivers/misc/mfrc522/rfid.c
++++ b/drivers/misc/mfrc522/rfid.c
+@@ -10,7 +10,6 @@ MODULE_LICENSE("GPL");
+ static int __init rfid_init(void)
+ {
+ 	spi_init();
+-	kernel_thread(spi_debug, NULL, 0);
+ 	return 0;
+ }
+ 
+diff --git a/drivers/net/Kconfig b/drivers/net/Kconfig
+index 2122937..95c6562 100644
+--- a/drivers/net/Kconfig
++++ b/drivers/net/Kconfig
+@@ -28,10 +28,6 @@ menuconfig NETDEVICES
+ # that for each of the symbols.
+ if NETDEVICES
+ 
+-config DM9000E
+-	tristate "DM9000E support(by Victor)"
+-	help
+-	  DM9000E support(by Victor)
+ 
+ config IFB
+ 	tristate "Intermediate Functional Block support"
+@@ -227,6 +223,16 @@ menuconfig NET_ETHERNET
+ 
+ if NET_ETHERNET
+ 
++config DM9000E
++	tristate "DM9000E support(by Victor)"
++	help
++	  DM9000E support(by Victor)
++
++config DM9000E_DEBUG
++	bool "DM9000E dev_dbg enable"
++	help
++	  Debug suport
++
+ config MACB
+ 	tristate "Atmel MACB support"
+ 	depends on HAVE_NET_MACB
+diff --git a/drivers/net/Makefile b/drivers/net/Makefile
+index b17ebad..da10062 100644
+--- a/drivers/net/Makefile
++++ b/drivers/net/Makefile
+@@ -10,6 +10,7 @@ obj-$(CONFIG_TI_DAVINCI_EMAC) += davinci_emac.o
+ obj-$(CONFIG_TI_DAVINCI_MDIO) += davinci_mdio.o
+ obj-$(CONFIG_TI_DAVINCI_CPDMA) += davinci_cpdma.o
+ 
++ccflags-$(CONFIG_DM9000E_DEBUG) += -DDEBUG
+ obj-$(CONFIG_DM9000E) += dm9000e.o
+ 
+ obj-$(CONFIG_E1000) += e1000/
+diff --git a/drivers/net/dm9000e.c b/drivers/net/dm9000e.c
+index dbb26f4..d876083 100644
+--- a/drivers/net/dm9000e.c
++++ b/drivers/net/dm9000e.c
+@@ -7,6 +7,8 @@
+ #include <linux/err.h>
+ #include <linux/etherdevice.h>
+ #include <linux/delay.h>
++#include <linux/irq.h>
++#include <asm/io.h>
+ #include <mach/hardware.h>
+ #include <mach/regs-gpio.h>
+ #include "dm9000.h"
+@@ -30,8 +32,10 @@ struct dm9000e_info {
+ 	int irq;
+ 	void *mem_reg;
+ 	void *mem_data;
+-	enum int_status int_stauts;
++	enum int_status int_status;
+ 	struct sk_buff *skb;
++	void (*tx_data)(void *buf, int count);
++	void (*rx_data)(void *buf, int count);
+ 	
+ };
+ 
+@@ -49,6 +53,23 @@ static void write_data(unsigned int data, int reg)
+ 	iowrite32(data, dm9000e_info->mem_data);
+ }
+ 
++static void tx_data_8(void *buf, int conut)
++{
++
++}
++
++static void tx_data_16(void *buf, int size)
++{
++	iowrite32(DM9000_MWCMD, dm9000e_info->mem_reg);
++	iowrite16_rep(buf, dm9000e_info->mem_data, (size + 1) / 2);
++}
++
++static void rx_data_16(void *buf, int size)
++{
++	iowrite32(DM9000_MRCMD, dm9000e_info->mem_reg);
++	ioread16_rep(buf, dm9000e_info->mem_data, (size + 1) / 2);
++}
++
+ static void dm9000e_reset(void)
+ {
+ 	unsigned int ncr;
+@@ -95,10 +116,10 @@ static void dm9000e_enable(struct net_device *dev)
+ 	reg = read_data(DM9000_RCR);
+ 	reg |= 1;
+ 	write_data(reg, DM9000_RCR);
+-	info->int_stauts = 0;
++	info->int_status = 0;
+ }
+ 
+-static void dm9000e_disable()
++static void dm9000e_disable(void)
+ {
+ 	unsigned int reg;
+ 	reg = read_data(DM9000_IMR);
+@@ -107,14 +128,51 @@ static void dm9000e_disable()
+ 	
+ 	reg = read_data(DM9000_RCR);
+ 	reg &= ~1;
+-	write_data(DM9000_RCR);
++	write_data(reg, DM9000_RCR);
+ }
+ 
+ static void dm9000e_rx(struct net_device *dev)
+ {
++	struct dm9000e_info *info = netdev_priv(dev);
++	
++	unsigned char flag, status;
++	int len;
++	unsigned int tmp;
++	struct sk_buff *skb;
++	read_data(DM9000_MRCMDX);
++	flag = (u8)read_data(DM9000_MRCMDX);
++	if (flag == 0)
++		return ;
++
++	if (flag != 1) {
++		dm9000e_disable();
++		dm9000e_enable(dev);
++		return ;
++	}
++
++	tmp = read_data(DM9000_MRCMD);
++	status = (tmp >> 8) & 0xFF;
++	len = read_data(DM9000_MRCMD);
++	printk(KERN_INFO "%s:data len = %d\n", __func__, len);
++	
++	skb = dev_alloc_skb(len);
++	if (!skb) {
++		printk(KERN_INFO "%s:low mem alloc skb\n", __func__);
++		return ;
++	}
++
++	info->rx_data(skb_put(skb, len), len);
++
++	skb->dev = dev;
++	skb->protocol = eth_type_trans(skb, dev);
++
++	netif_rx(skb);
+ 
++	return ;
++	
+ }
+ 
++
+ static int dm9000e_ndo_init(struct net_device *dev)
+ {
+ 	struct dm9000e_info *info = netdev_priv(dev);
+@@ -134,6 +192,10 @@ static int dm9000e_ndo_init(struct net_device *dev)
+ 	product_id |= ioread8(info->mem_data);
+ 	printk(KERN_INFO "dm9000 product id:0x%04x\n", product_id);
+ 
++	/* 16 bit mode*/
++	info->tx_data = tx_data_16;
++	info->rx_data = rx_data_16;
++
+ 	return 0;
+ }
+ 
+@@ -143,6 +205,8 @@ static int dm9000e_ndo_open(struct net_device *dev)
+ 	dm9000e_enable(dev);
+ 	enable_irq(info->irq);
+ 
++	printk(KERN_INFO "%s:open\n", __func__);
++
+ 	netif_start_queue(dev);
+ 	return 0;
+ }
+@@ -165,6 +229,8 @@ static netdev_tx_t dm9000e_ndo_start_xmit(struct sk_buff *skb,
+ 	int len;
+ 	int i;
+ 
++	printk(KERN_INFO "%s:transmit\n", __func__);
++	
+ 	if (skb->len < ETH_ZLEN) {
+ 		memset(shortpkt, 0, ETH_ZLEN);
+ 		memcpy(shortpkt, skb->data, skb->len);
+@@ -178,9 +244,7 @@ static netdev_tx_t dm9000e_ndo_start_xmit(struct sk_buff *skb,
+ 	dev->trans_start = jiffies;
+ 	info->skb = skb;
+ 	
+-	for (i = 0; i < len; i++) {
+-		write_data(data[i], DM9000_MWCMD);
+-	}
++	info->tx_data(data, len);
+ 
+ 	write_data(len & 0xFF, DM9000_TXPLL);
+ 	write_data((len >> 8) & 0xFF, DM9000_TXPLH);
+@@ -196,6 +260,15 @@ static netdev_tx_t dm9000e_ndo_start_xmit(struct sk_buff *skb,
+ 
+ }
+ 
++static void dm9000e_ndo_tx_timeout(struct net_device *dev)
++{
++	struct dm9000e_info *info = netdev_priv(dev);
++	dm9000e_disable();
++	dm9000e_enable(dev);
++	info->int_status |= INT_TX;
++	generic_handle_irq(info->irq);
++}
++
+ static void handle_irq(struct net_device *dev)
+ {
+ 	struct dm9000e_info *info = netdev_priv(dev);
+@@ -212,8 +285,8 @@ static struct net_device_ops dm9000e_ops = {
+ 	.ndo_open = dm9000e_ndo_open,
+ 	.ndo_stop = dm9000e_ndo_stop,
+ 	.ndo_start_xmit = dm9000e_ndo_start_xmit,
+-	.ndo_tx_timeout = ,
+-	.ndo_get_stats = ,
++	.ndo_tx_timeout = dm9000e_ndo_tx_timeout,
++/*	.ndo_get_stats = ,*/
+ 	.ndo_set_mac_address = eth_mac_addr,
+ };
+ 
+@@ -224,7 +297,7 @@ static irqreturn_t dm9000e_irq_handler(int irq, void *dev_id)
+ 	struct dm9000e_info *info = netdev_priv(dev_id);
+ 	unsigned int reg = read_data(DM9000_ISR);
+ 	if (reg & 0x1) {
+-		info->int_stauts |= INT_RX;
++		info->int_status |= INT_RX;
+ 		reg |= 0x1;
+ 	} else if (reg & (1 << 1)) {
+ 		info->int_status |= INT_TX;
+-- 
+1.7.1
+

@@ -1,0 +1,251 @@
+From 61edcf54907373f182a3ca9a0e0f3ca764f6ecca Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Mon, 8 Aug 2011 13:07:03 +0800
+Subject: [PATCH 30/36] mv mfrc522 to master
+
+---
+ drivers/misc/Kconfig           |    1 -
+ drivers/misc/mfrc522/Makefile  |    4 +-
+ drivers/misc/mfrc522/rfid.c    |   24 +++++++-
+ drivers/misc/mfrc522/spi.c     |  132 +++++++++++++++++++++++++++++++++++++++-
+ drivers/misc/mfrc522/spi.h     |   11 +++-
+ 5 files changed, 166 insertions(+), 6 deletions(-)
+ create mode 100644 drivers/misc/mfrc522/mfrc522.c
+ mode change 120000 => 100644 drivers/misc/mfrc522/rfid.c
+ mode change 120000 => 100644 drivers/misc/mfrc522/spi.c
+ mode change 120000 => 100644 drivers/misc/mfrc522/spi.h
+
+diff --git a/drivers/misc/Kconfig b/drivers/misc/Kconfig
+index c2e4c0a..c535144 100644
+--- a/drivers/misc/Kconfig
++++ b/drivers/misc/Kconfig
+@@ -14,7 +14,6 @@ if MISC_DEVICES
+ 
+ config MFRC522_SPI
+ 	tristate "MFRC522 S3C2440 SPI DRIVER"
+-	depends on CPU_S3C2440
+ 	help
+ 	  MFRC522 S3C2440 SPI DRIVER
+ 
+diff --git a/drivers/misc/mfrc522/Makefile b/drivers/misc/mfrc522/Makefile
+index acc16ee..b90cfec 100644
+--- a/drivers/misc/mfrc522/Makefile
++++ b/drivers/misc/mfrc522/Makefile
+@@ -1,3 +1,3 @@
+-obj-$(CONFIG_MFRC522_SPI) := mfrc522.o
++obj-$(CONFIG_MFRC522_SPI) := rfid-mfrc522.o
+ 
+-mfrc522-y := spi.o rfid.o
++rfid-mfrc522-y := spi.o rfid.o mfrc522.o
+diff --git a/drivers/misc/mfrc522/mfrc522.c b/drivers/misc/mfrc522/mfrc522.c
+new file mode 100644
+index 0000000..e69de29
+diff --git a/drivers/misc/mfrc522/rfid.c b/drivers/misc/mfrc522/rfid.c
+deleted file mode 120000
+index 68718af..0000000
+--- a/drivers/misc/mfrc522/rfid.c
++++ /dev/null
+@@ -1 +0,0 @@
+-/home/victor/workspace/ldd/rfid/rfid.c
+\ No newline at end of file
+diff --git a/drivers/misc/mfrc522/rfid.c b/drivers/misc/mfrc522/rfid.c
+new file mode 100644
+index 0000000..7c9c2dc
+--- /dev/null
++++ b/drivers/misc/mfrc522/rfid.c
+@@ -0,0 +1,23 @@
++#include <linux/kernel.h>
++#include <linux/init.h>
++#include <linux/module.h>
++
++
++#include "spi.h"
++
++MODULE_LICENSE("GPL");
++
++static int __init rfid_init(void)
++{
++	spi_init();
++	kernel_thread(spi_debug, NULL, 0);
++	return 0;
++}
++
++static void __exit rfid_exit(void)
++{
++
++}
++
++module_init(rfid_init);
++module_exit(rfid_exit);
+diff --git a/drivers/misc/mfrc522/spi.c b/drivers/misc/mfrc522/spi.c
+deleted file mode 120000
+index 94d8441..0000000
+--- a/drivers/misc/mfrc522/spi.c
++++ /dev/null
+@@ -1 +0,0 @@
+-/home/victor/workspace/ldd/rfid/spi.c
+\ No newline at end of file
+diff --git a/drivers/misc/mfrc522/spi.c b/drivers/misc/mfrc522/spi.c
+new file mode 100644
+index 0000000..b6da3f5
+--- /dev/null
++++ b/drivers/misc/mfrc522/spi.c
+@@ -0,0 +1,131 @@
++#include <linux/init.h>
++#include <linux/kernel.h>
++#include <linux/io.h>
++#include <linux/clk.h>
++#include <linux/spinlock.h>
++#include <mach/hardware.h>
++#include <mach/regs-spi.h>
++#include <linux/delay.h>
++
++/* THIS INTERFACE USE SPI0, THE S3C2440_SPI::MEMBASE*/
++/* chip sel GPB0*/
++
++#define BAUD	5000000 /*5MHz*/
++
++
++struct s3c2440_spi
++{
++	void 		*membase;
++	spinlock_t	lock;
++	int cs;
++};
++
++static struct s3c2440_spi s3c2440_spi = {0};
++
++static inline unsigned int spi_read_reg(int reg_offset)
++{
++	return ioread32(s3c2440_spi.membase + reg_offset);
++}
++
++static void inline spi_write_reg(unsigned int value, int reg_offset)
++{
++	iowrite32(value, s3c2440_spi.membase + reg_offset);
++}
++
++static void inline spi_ready(void)
++{
++	unsigned int spsta;
++	while(1) {
++		spsta = spi_read_reg(SPSTA);
++		if (spsta & 1)
++			break;
++	}
++}
++
++/*
++GPE13 Input/output SPICLK0 – –
++GPE12 Input/output SPIMOSI0 – –
++GPE11 Input/output SPIMISO0 
++chip sel GPB0
++ */
++
++
++static void spi_init_gpio(void)
++{
++	int gpecon;
++	int gpbcon;
++	int gpbdat;
++	
++	gpbcon = ioread32(GPIO_VA + 0x10);
++	gpbcon &= ~(3 << 0);
++	gpbcon |= 1 << 0;
++	iowrite32(gpbcon, GPIO_VA + 0x10);
++	gpbdat = ioread32(GPIO_VA + 0x14);
++/*	gpbdat |= 1;*/
++	iowrite32(gpbdat, GPIO_VA + 0x14);
++
++	gpecon = ioread32(GPIO_VA + 0x40);
++	gpecon &= ~((3 << 26) | (3 << 24) | (3 << 22));
++	gpecon |= (2 << 26) | (2 << 24) | (2 << 22);
++	iowrite32(gpecon, GPIO_VA + 0x40);
++}
++
++int spi_init(void)
++{
++	int pclk_rate;
++	struct clk *pclk;
++	int pre;
++
++	s3c2440_spi.lock = SPIN_LOCK_UNLOCKED;
++	s3c2440_spi.membase = SPI0_VA;
++
++	unsigned int spcon;
++	spcon = (0 << 5) | (1 << 4) | (1 << 3) | (0 << 2) | (0 << 1) | 0; 
++	/* POLL | SCK EN | MASTER | CPOL = 0 | CPHA = 0 | TAG = 0*/
++					/* MFRC522 required CPOL CPHA */
++	spi_write_reg(spcon, SPCON);
++	
++	pclk = clk_get(NULL, "pclk");
++	pclk_rate = clk_get_rate(pclk);
++
++	pre = pclk_rate / 2;
++	pre = pre / BAUD - 1;
++	spi_write_reg(pre, SPPRE);
++	
++	spi_init_gpio();	
++}
++
++unsigned char spi_get_char(void)
++{
++	spi_ready();
++	spi_write_reg(0xFF, SPTDAT);
++	spi_ready();
++	return spi_read_reg(SPRDAT);
++}
++
++void spi_put_char(unsigned char ch)
++{
++	spi_ready();
++	spi_write_reg(ch, SPTDAT);
++}
++
++unsigned char spi_put_get_char(unsigned char ch)
++{
++	spi_ready();
++	spi_write_reg(ch, SPTDAT);
++	spi_ready();
++	return spi_read_reg(SPRDAT);
++}
++
++int spi_debug(void *dummy)
++{
++	char test[] = "xiaoniu";
++	int i;
++	printk(KERN_INFO "%s:entery debug...\n", __func__);
++	while(1) {
++		for (i = 0; i < sizeof(test); i++) {
++			spi_put_char(test[i]);
++			udelay(100);
++		}
++	}
++}
+diff --git a/drivers/misc/mfrc522/spi.h b/drivers/misc/mfrc522/spi.h
+deleted file mode 120000
+index 5c50244..0000000
+--- a/drivers/misc/mfrc522/spi.h
++++ /dev/null
+@@ -1 +0,0 @@
+-/home/victor/workspace/ldd/rfid/spi.h
+\ No newline at end of file
+diff --git a/drivers/misc/mfrc522/spi.h b/drivers/misc/mfrc522/spi.h
+new file mode 100644
+index 0000000..3b23305
+--- /dev/null
++++ b/drivers/misc/mfrc522/spi.h
+@@ -0,0 +1,10 @@
++#ifndef __MFRC522_SPI_H
++#define __MFRC522_SPI_H
++
++int spi_init(void);
++unsigned char spi_get_char(void);
++void spi_put_char(unsigned char ch);
++int spi_debug(void *dummy);
++
++
++#endif
+-- 
+1.7.1
+

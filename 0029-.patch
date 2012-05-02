@@ -1,0 +1,42 @@
+From 5e013af659f604b909373cbcf94de3da57998028 Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Mon, 8 Aug 2011 11:06:30 +0800
+Subject: [PATCH 29/36] ..
+
+---
+ drivers/misc/mfrc522/Makefile |    3 +++
+ drivers/misc/mfrc522/rfid.c   |    1 +
+ drivers/misc/mfrc522/spi.h    |    1 +
+ 3 files changed, 5 insertions(+), 0 deletions(-)
+ create mode 100644 drivers/misc/mfrc522/Makefile
+ create mode 120000 drivers/misc/mfrc522/rfid.c
+ create mode 120000 drivers/misc/mfrc522/spi.h
+
+diff --git a/drivers/misc/mfrc522/Makefile b/drivers/misc/mfrc522/Makefile
+new file mode 100644
+index 0000000..acc16ee
+--- /dev/null
++++ b/drivers/misc/mfrc522/Makefile
+@@ -0,0 +1,3 @@
++obj-$(CONFIG_MFRC522_SPI) := mfrc522.o
++
++mfrc522-y := spi.o rfid.o
+diff --git a/drivers/misc/mfrc522/rfid.c b/drivers/misc/mfrc522/rfid.c
+new file mode 120000
+index 0000000..68718af
+--- /dev/null
++++ b/drivers/misc/mfrc522/rfid.c
+@@ -0,0 +1 @@
++/home/victor/workspace/ldd/rfid/rfid.c
+\ No newline at end of file
+diff --git a/drivers/misc/mfrc522/spi.h b/drivers/misc/mfrc522/spi.h
+new file mode 120000
+index 0000000..5c50244
+--- /dev/null
++++ b/drivers/misc/mfrc522/spi.h
+@@ -0,0 +1 @@
++/home/victor/workspace/ldd/rfid/spi.h
+\ No newline at end of file
+-- 
+1.7.1
+

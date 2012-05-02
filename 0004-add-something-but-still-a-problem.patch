@@ -1,0 +1,165 @@
+From 0c8d0053c9fcc07e4d87dc877dc2a7bfa7900e92 Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Sat, 16 Jul 2011 19:09:47 +0800
+Subject: [PATCH 04/36] add something, but still a problem
+
+---
+ arch/arm/mach-s3c2440x/include/mach/entry-macro.S |   23 +++++++++++
+ arch/arm/mach-s3c2440x/include/mach/hardware.h    |   20 ++++++++++
+ arch/arm/mach-s3c2440x/include/mach/io.h          |    5 ++
+ arch/arm/mach-s3c2440x/include/mach/irqs.h        |   42 +++++++++++++++++++++
+ arch/arm/mach-s3c2440x/include/mach/regs-int.h    |   13 ++++++
+ arch/arm/mach-s3c2440x/include/mach/vmalloc.h     |    2 +
+ 6 files changed, 105 insertions(+), 0 deletions(-)
+ create mode 100644 arch/arm/mach-s3c2440x/include/mach/entry-macro.S
+ create mode 100644 arch/arm/mach-s3c2440x/include/mach/hardware.h
+ create mode 100644 arch/arm/mach-s3c2440x/include/mach/io.h
+ create mode 100644 arch/arm/mach-s3c2440x/include/mach/irqs.h
+ create mode 100644 arch/arm/mach-s3c2440x/include/mach/regs-int.h
+
+diff --git a/arch/arm/mach-s3c2440x/include/mach/entry-macro.S b/arch/arm/mach-s3c2440x/include/mach/entry-macro.S
+new file mode 100644
+index 0000000..9b690e7
+--- /dev/null
++++ b/arch/arm/mach-s3c2440x/include/mach/entry-macro.S
+@@ -0,0 +1,23 @@
++#include <mach/hardware.h>
++#include <mach/regs-int.h>
++#define REG_BASE	MAP_VA(INT_PA)
++
++.macro	get_irqnr_preamble, base, tmp
++.endm
++
++.macro	arch_ret_to_user, tmp1, tmp2
++.endm
++
++.macro	get_irqnr_and_base, irqnr, irqstat, base, tmp
++	@mov \irqnr, #0
++	mov \base, #REG_BASE
++	ldr \irqstat, [\base, #INTPND]
++	teq \irqstat, #0
++	beq 2f
++	ldr \irqnr, [\base, #INTOFFSET]
++2:
++	@ 
++.endm
++
++.macro disable_fiq
++.endm
+diff --git a/arch/arm/mach-s3c2440x/include/mach/hardware.h b/arch/arm/mach-s3c2440x/include/mach/hardware.h
+new file mode 100644
+index 0000000..67ef3ff
+--- /dev/null
++++ b/arch/arm/mach-s3c2440x/include/mach/hardware.h
+@@ -0,0 +1,20 @@
++#ifndef __ASM_ARCH_HARDWARE_H
++#define __ASM_ARCH_HARDWARE_H
++
++#define	MEM_PA		0x48000000
++#define USBH_PA		0x49000000UL
++#define INT_PA		0x4A000000
++#define DMA_PA		0x4B000000UL
++#define CLK_PM_PA	0x4C000000UL
++#define	LCD_PA		0x4D000000UL
++#define NAND_PA		0x4E000000UL
++#define	CAM_PA		0x4F000000UL
++
++
++#define MAP_VA_BASE	0xF0000000
++
++#define MAP_VA(x)	(((x - MEM_PA) >> 8) + MAP_VA_BASE)
++#define MAP_SIZE	0x10000UL
++
++
++#endif
+diff --git a/arch/arm/mach-s3c2440x/include/mach/io.h b/arch/arm/mach-s3c2440x/include/mach/io.h
+new file mode 100644
+index 0000000..e6f957f
+--- /dev/null
++++ b/arch/arm/mach-s3c2440x/include/mach/io.h
+@@ -0,0 +1,5 @@
++#ifndef __ASM_ARCH_IO_H
++#define __ASM_ARCH_IO_H
++
++
++#endif
+diff --git a/arch/arm/mach-s3c2440x/include/mach/irqs.h b/arch/arm/mach-s3c2440x/include/mach/irqs.h
+new file mode 100644
+index 0000000..543941a
+--- /dev/null
++++ b/arch/arm/mach-s3c2440x/include/mach/irqs.h
+@@ -0,0 +1,42 @@
++#ifndef __ASM_ARCH_IRQS_H
++#define __ASM_ARCH_IRQS_H
++
++#define EINT0		0
++#define EINT1		1
++#define EINT2		2
++#define EINT3		3
++#define EINT4_7		4
++#define EINT8_23	5
++#define INT_CAM		6
++#define nBATT_FLT	7
++#define INT_TICK	8
++#define INT_WDT_AC97	9
++#define INT_TIMER0	10
++#define INT_TIMER1	11
++#define INT_TIMER2	12
++#define INT_TIMER3	13
++#define INT_TIMER4	14
++#define INT_UART2	15
++
++#define INT_LCD		16
++#define INT_DMA0	17
++#define INT_DMA1	18
++#define INT_DMA2	19
++#define INT_DMA3	20
++#define INT_SDI		21
++#define INT_SPI0	22
++#define INT_UART1	23
++#define INT_NFCON	24
++#define INT_USBD	25
++#define INT_USBH	26
++#define INT_IIC		27
++#define INT_UART0	28
++#define INT_SPI1	29
++#define INT_RTC		30
++#define INT_ADC		31
++
++
++
++#define NR_IRQS		32
++
++#endif
+diff --git a/arch/arm/mach-s3c2440x/include/mach/regs-int.h b/arch/arm/mach-s3c2440x/include/mach/regs-int.h
+new file mode 100644
+index 0000000..099c681
+--- /dev/null
++++ b/arch/arm/mach-s3c2440x/include/mach/regs-int.h
+@@ -0,0 +1,13 @@
++#ifndef __REG_INT_H
++#define __REG_INT_H
++
++#define SRCPND		0x0
++#define INTMOD		0x4
++#define INTMSK		0x8
++#define PRIORITY	0xC
++#define INTPND		0x10
++#define INTOFFSET	0x14
++#define SUBSRCPND	0x18
++#define INTSUBMSK	0x1C
++
++#endif
+diff --git a/arch/arm/mach-s3c2440x/include/mach/vmalloc.h b/arch/arm/mach-s3c2440x/include/mach/vmalloc.h
+index 99b5c4d..917c116 100644
+--- a/arch/arm/mach-s3c2440x/include/mach/vmalloc.h
++++ b/arch/arm/mach-s3c2440x/include/mach/vmalloc.h
+@@ -2,3 +2,5 @@
+ #define __ASM_ARCH_VMALLOC_H
+ 
+ #define	VMALLOC_END	0xF7000000UL
++
++#endif
+-- 
+1.7.1
+

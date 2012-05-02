@@ -1,0 +1,137 @@
+From 931259eb08a8f07564097a12e2dfccb8fb10c664 Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Sat, 30 Jul 2011 16:52:24 +0800
+Subject: [PATCH 20/36] fix timer interrupt and uart_driver configure
+
+---
+ arch/arm/mach-s3c2440x/clock.c |    6 +++---
+ arch/arm/mach-s3c2440x/timer.c |   26 +++++++++++++++++++++++---
+ drivers/serial/s3c2440x.c      |   21 ++++++++++++++-------
+ 3 files changed, 40 insertions(+), 13 deletions(-)
+
+diff --git a/arch/arm/mach-s3c2440x/clock.c b/arch/arm/mach-s3c2440x/clock.c
+index 1e3ad25..c5f3a51 100644
+--- a/arch/arm/mach-s3c2440x/clock.c
++++ b/arch/arm/mach-s3c2440x/clock.c
+@@ -207,12 +207,12 @@ static struct clk pclk = {
+ };
+ 
+ void s3c2440x_clock_init(void)
+-{
+-	early_printk("s3c2440x_clock_init:");
++{	
+ 	clk_add(&fclk);
+ 	clk_add(&hclk);
+ 	clk_add(&pclk);
+ 	clk_enable(&fclk);
+-	early_printk("FCLK=%ld, HCLK=%ld, PCLK=%ld\n", clk_get_rate(&fclk),
++	printk(KERN_ALERT "%s:FCLK=%ld, HCLK=%ld, PCLK=%ld\n", __FUNCTION__,
++			clk_get_rate(&fclk),
+ 			clk_get_rate(&hclk), clk_get_rate(&pclk));
+ }
+diff --git a/arch/arm/mach-s3c2440x/timer.c b/arch/arm/mach-s3c2440x/timer.c
+index c4b6267..6709779 100644
+--- a/arch/arm/mach-s3c2440x/timer.c
++++ b/arch/arm/mach-s3c2440x/timer.c
+@@ -8,6 +8,8 @@
+ #include <linux/irq.h>
+ #include <linux/interrupt.h>
+ #include <linux/init.h>
++#include <linux/param.h>
++#include <linux/clk.h>
+ 
+ static void s3c2440x_timer_init(void);
+ 
+@@ -18,6 +20,7 @@ struct sys_timer s3c2440x_timer __initdata = {
+ 
+ static irqreturn_t s3c2440x_timer_interrupt(int irq, void *dev_id)
+ {
++/*	early_printk("%s:timer interrupt\n", __FUNCTION__);*/
+ 	timer_tick();
+ 	return IRQ_HANDLED;
+ }
+@@ -31,9 +34,26 @@ static struct irqaction s3c2440x_timer_action = {
+ 
+ static void __init s3c2440x_timer4_setup(void)
+ {
+-	iowrite32(4 << 16, TIMER_VA + TCFG1);
+-	iowrite16(LATCH, TIMER_VA + TCNTB4);
+-	iowrite32(1 << 22 | 1 << 20, TIMER_VA + TCON);
++	unsigned int tcnt;
++	struct clk *clk;
++	clk = clk_get(NULL, "pclk");
++	tcnt = clk_get_rate(clk);
++	printk(KERN_ALERT "%s:pclk=%d\n", __FUNCTION__, tcnt);
++
++	iowrite32(8 << 8, TIMER_VA + TCFG0); /*prescaler 1 = 8*/
++	iowrite32(2 << 16, TIMER_VA + TCFG1);
++	
++	tcnt /= 8 * 8;
++	tcnt /= HZ;
++	printk(KERN_ALERT "%s:tcnt=%d\n", __FUNCTION__, tcnt);
++	iowrite16(tcnt, TIMER_VA + TCNTB4);
++
++
++	iowrite32(1 << 22 | 1 << 21, TIMER_VA + TCON);
++	unsigned int tcon = ioread32(TIMER_VA + TCON);
++	tcon &= ~(1 << 21);
++	tcon |= 1 <<20;
++	iowrite32(tcon, TIMER_VA + TCON);
+ }
+ 
+ static void __init s3c2440x_timer_init(void)
+diff --git a/drivers/serial/s3c2440x.c b/drivers/serial/s3c2440x.c
+index 00f4b89..c63872c 100644
+--- a/drivers/serial/s3c2440x.c
++++ b/drivers/serial/s3c2440x.c
+@@ -179,17 +179,24 @@ static void s3c2440x_uart_set_termios(struct uart_port *port,
+ 	ubrdiv = pclk_rate / (baud * 16) - 1;
+ 	iowrite16(ubrdiv, (unsigned int)port->membase + UBRDIV);
+ 
+-	if ((new->c_cflag & CS7) == CS7) {
++#define CS_BIT (CS5 | CS6 | CS7 | CS8)
++
++	if ((new->c_cflag & CS_BIT) == CS7) {
+ 		ulcon |= 2 << 0;  /*bits = 7;*/
+-	} else {
++	} else if ((new->c_cflag & CS8) == CS8) {
+ 		ulcon |= 3 << 0;  /*bits = 8;*/
++	} else {
++		printk(KERN_ALERT "%s:unkown cs bit\n", __FUNCTION__);
+ 	}
+-
+-	if ((new->c_cflag & PARODD) == PARODD) {
++#define PAR_BIT (PARENB | PARODD)
++	if ((new->c_cflag & PAR_BIT) == PARODD) {
+ 		ulcon |= 4 << 3;	/*parity = 'o';*/
+-	} else {
++	} else if ((new->c_cflag & PAR_BIT) == PARENB) {
+ 		ulcon |= 5 << 3;	/*parity = 'e';*/
++	} else {
++		printk("%s:unkown parity bit\n", __FUNCTION__);
+ 	}
++		
+ 
+ 	if ((new->c_cflag & CRTSCTS) == CRTSCTS) {
+ 			/*flow == 'r';*/
+@@ -298,7 +305,7 @@ static int s3c2440x_serial_probe(struct platform_device *device)
+ 
+ static int s3c2440x_serial_remove(struct platform_device *device)
+ {
+-	uart_remove_one_port(&s3c2440x_uart_drv,
++	return uart_remove_one_port(&s3c2440x_uart_drv,
+ 				&s3c2440x_uart_ports[device->id]);
+ }
+ 
+@@ -368,7 +375,7 @@ static void s3c2440x_console_setup(struct console *con, char *options)
+ 	if (options) {
+ 		uart_parse_options(options, &baud, &parity, &bits, &flow);
+ 	}
+-	return uart_set_options(port, con, baud, parity, bits, flow);
++	uart_set_options(port, con, baud, parity, bits, flow);
+ }
+ 
+ static struct console s3c2440x_console = {
+-- 
+1.7.1
+

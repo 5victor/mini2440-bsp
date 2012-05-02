@@ -1,0 +1,49 @@
+From 10c112c9626b9e558bb13829bc9b125493e48bfa Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Wed, 3 Aug 2011 10:33:09 +0800
+Subject: [PATCH 26/36] fix map io address bound bug
+
+---
+ arch/arm/mach-s3c2440x/include/mach/hardware.h |    2 +-
+ arch/arm/mach-s3c2440x/include/mach/regs-spi.h |   12 ++++++------
+ 2 files changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/arch/arm/mach-s3c2440x/include/mach/hardware.h b/arch/arm/mach-s3c2440x/include/mach/hardware.h
+index a8af109..ae2dff5 100644
+--- a/arch/arm/mach-s3c2440x/include/mach/hardware.h
++++ b/arch/arm/mach-s3c2440x/include/mach/hardware.h
+@@ -18,7 +18,7 @@
+ 
+ #define MAP_VA_BASE	0xF0000000
+ 
+-#define MAP_VA(x)	((x - MEM_PA) + MAP_VA_BASE)
++#define MAP_VA(x)	(((x - MEM_PA) >> 8) + MAP_VA_BASE)
+ #define MAP_SIZE	SZ_1K
+ 
+ #define MEM_VA		MAP_VA(MEM_PA)
+diff --git a/arch/arm/mach-s3c2440x/include/mach/regs-spi.h b/arch/arm/mach-s3c2440x/include/mach/regs-spi.h
+index 9605727..ad6d7f3 100644
+--- a/arch/arm/mach-s3c2440x/include/mach/regs-spi.h
++++ b/arch/arm/mach-s3c2440x/include/mach/regs-spi.h
+@@ -1,12 +1,12 @@
+ #ifndef __ASM_ARCH_REGS_SPI_H
+ #define __ASM_ARCH_REGS_SPI_H
+ 
+-#DEFINE SPCON	0X0
+-#DEFINE SPSTA	0X4
+-#DEFINE SPPIN	0X8
+-#DEFINE SPPRE	0XC
+-#DEFINE SPTDAT	0X10
+-#DEFINE SPRDAT	0X14
++#define SPCON	0x0
++#define SPSTA	0x4
++#define SPPIN	0x8
++#define SPPRE	0xC
++#define SPTDAT	0x10
++#define SPRDAT	0x14
+ 
+ 
+ #endif
+-- 
+1.7.1
+

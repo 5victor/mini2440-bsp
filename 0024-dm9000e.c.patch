@@ -1,0 +1,109 @@
+From 020629ae3e207e59b6312d7ee542b3b8621e4345 Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Tue, 2 Aug 2011 15:11:51 +0800
+Subject: [PATCH 24/36] dm9000e.c
+
+---
+ arch/arm/mach-s3c2440x/mach-mini2440.c |    8 ++++----
+ drivers/net/dm9000e.c                  |   30 ++++++++++++++++++++++++++----
+ 2 files changed, 30 insertions(+), 8 deletions(-)
+
+diff --git a/arch/arm/mach-s3c2440x/mach-mini2440.c b/arch/arm/mach-s3c2440x/mach-mini2440.c
+index 02077b3..f92d3b2 100644
+--- a/arch/arm/mach-s3c2440x/mach-mini2440.c
++++ b/arch/arm/mach-s3c2440x/mach-mini2440.c
+@@ -95,13 +95,13 @@ static struct resource dm9000e_res[] = {
+ 		.flags	= IORESOURCE_IRQ,
+ 	},
+ 	[1] = {
+-		.start	= 0x20000000,
+-		.end	= 0x20000000,
++		.start	= 0x20000300,
++		.end	= 0x20000303,
+ 		.flags	= IORESOURCE_MEM,
+ 	},
+ 	[2] = {
+-		.start	= 0x20000004,
+-		.end	= 0x20000004,
++		.start	= 0x20000304,
++		.end	= 0x20000307,
+ 		.flags	= IORESOURCE_MEM,
+ 	},
+ };
+diff --git a/drivers/net/dm9000e.c b/drivers/net/dm9000e.c
+index 13c540b..c1f3499 100644
+--- a/drivers/net/dm9000e.c
++++ b/drivers/net/dm9000e.c
+@@ -6,6 +6,7 @@
+ #include <linux/spinlock.h>
+ #include <linux/err.h>
+ #include <linux/etherdevice.h>
++#include <linux/delay.h>
+ #include <mach/hardware.h>
+ #include <mach/regs-gpio.h>
+ #include "dm9000.h"
+@@ -28,6 +29,24 @@ struct dm9000e_info {
+ 	void *mem_data;
+ };
+ 
++static struct dm9000e_info *dm9000e_info;
++
++static unsigned int read_data(int reg)
++{
++	iowrite8(reg, dm9000e_info->mem_reg);
++	return ioread8(dm9000e_info->mem_data);
++}
++
++static void write_data(unsigned int data, int reg)
++{
++	iowrite8(reg, dm9000e_info->mem_reg);
++	iowrite8(data, dm9000e_info->mem_data);
++}
++
++static void dm9000e_reset(void)
++{
++	
++}
+ 
+ static int dm9000e_ndo_init(struct net_device *dev)
+ {
+@@ -39,14 +58,16 @@ static int dm9000e_ndo_init(struct net_device *dev)
+ 	vendor_id <<= 8;
+ 	iowrite8(DM9000_VIDL, info->mem_reg);
+ 	vendor_id |= ioread8(info->mem_data);
+-	printk(KERN_INFO "dm9000 vendor id:0x%4x\n", vendor_id);
++	printk(KERN_INFO "dm9000 vendor id:0x%04x\n", vendor_id);
+ 
+ 	iowrite8(DM9000_PIDH, info->mem_reg);
+ 	product_id = ioread8(info->mem_data);
+ 	product_id <<= 8;
+ 	iowrite8(DM9000_PIDL, info->mem_reg);
+ 	product_id |= ioread8(info->mem_data);
+-	printk(KERN_INFO "dm9000 product id:0x%4x\n", product_id);
++	printk(KERN_INFO "dm9000 product id:0x%04x\n", product_id);
++
++	
+ 
+ 	return 0;
+ }
+@@ -96,14 +117,15 @@ static int dm9000e_probe(struct platform_device *device)
+ 	netdev->netdev_ops = &dm9000e_ops;
+ 	netdev->watchdog_timeo = msecs_to_jiffies(WATCHDOG_TIMEOUT);
+ 	info = netdev_priv(netdev);
++	dm9000e_info = info;
+ 	info->irq = platform_get_irq(device, 0);
+ 	printk(KERN_INFO "%s:irq %d\n", __func__, info->irq);
+ 	res = platform_get_resource(device, IORESOURCE_MEM, 0);
+ 	printk(KERN_INFO "dm9000 index register phy addr:0x%8x\n", res->start);
+-	info->mem_reg = ioremap(res->start, 4);
++	info->mem_reg = ioremap(res->start, res->end - res->start);
+ 	res = platform_get_resource(device, IORESOURCE_MEM, 1);
+ 	printk(KERN_INFO "dm9000 data register phy addr:0x%8x\n", res->start);
+-	info->mem_data = ioremap(res->start, 4);
++	info->mem_data = ioremap(res->start, res->end - res->start);
+ 
+ 
+ 	ret = request_irq(info->irq, dm9000e_irq_handler, 0, "dm9000e",
+-- 
+1.7.1
+

@@ -1,0 +1,145 @@
+From 5bfbfe2c7229631885c4c3d12e89de88f8860950 Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Fri, 12 Aug 2011 09:36:55 +0800
+Subject: [PATCH 33/36] fix interrupt dispatch error
+
+---
+ arch/arm/mach-s3c2440x/include/mach/entry-macro.S |    6 ++--
+ arch/arm/mach-s3c2440x/irq.c                      |    8 ++++++-
+ drivers/net/dm9000e.c                             |   25 +++++++++++++-------
+ 3 files changed, 26 insertions(+), 13 deletions(-)
+
+diff --git a/arch/arm/mach-s3c2440x/include/mach/entry-macro.S b/arch/arm/mach-s3c2440x/include/mach/entry-macro.S
+index 7bdaee5..2176ef0 100644
+--- a/arch/arm/mach-s3c2440x/include/mach/entry-macro.S
++++ b/arch/arm/mach-s3c2440x/include/mach/entry-macro.S
+@@ -15,9 +15,9 @@
+ 	teq \irqstat, #0
+ 	beq 2f
+ 	ldr \irqnr, [\base, #INTOFFSET]
+-	ldr \tmp, [\base, #INTPND]
+-	str \tmp, [\base, #SRCPND]
+-	str \tmp, [\base, #INTPND]
++@	ldr \tmp, [\base, #INTPND]
++@	str \tmp, [\base, #SRCPND]
++@	str \tmp, [\base, #INTPND]
+ 2:
+ 	@ 
+ .endm
+diff --git a/arch/arm/mach-s3c2440x/irq.c b/arch/arm/mach-s3c2440x/irq.c
+index dc14983..7b9da53 100644
+--- a/arch/arm/mach-s3c2440x/irq.c
++++ b/arch/arm/mach-s3c2440x/irq.c
+@@ -84,13 +84,15 @@ static void s3c2440x_uart_demux2(unsigned int irq, struct irq_desc *desc)
+ 
+ static void s3c2440x_eint_demux(int start, int end)
+ {
++
+ 	int eintpend = ioread32(GPIO_VA + EINTPEND);
+-	int eintmask = ioread32(GPIO_VA + EINTPEND);
++	int eintmask = ioread32(GPIO_VA + EINTMASK);
+ 	int i;
+ 	eintpend &= ~eintmask;
+ 	for (i = start; i < end; i++) {
+ 		if (eintpend & (1 << i)) {
+ 			generic_handle_irq(EINT4 + i - 4);
++			iowrite32(1 << i, GPIO_VA + EINTPEND);
+ 		}
+ 	}
+ }
+@@ -98,11 +100,15 @@ static void s3c2440x_eint_demux(int start, int end)
+ static void s3c2440x_eint_demux1(unsigned int irq, struct irq_desc *desc)
+ {
+ 	s3c2440x_eint_demux(4, 8);
++	iowrite32(1 << 4, (INT_VA + SRCPND));
++	iowrite32(1 << 4, (INT_VA + INTPND));
+ }
+ 
+ static void s3c2440x_eint_demux2(unsigned int irq, struct irq_desc *desc)
+ {
+ 	s3c2440x_eint_demux(8, 24);
++	iowrite32(1 << 5, (INT_VA + SRCPND));
++	iowrite32(1 << 5, (INT_VA + INTPND));
+ }
+ 
+ void __init s3c2440x_init_irq(void)
+diff --git a/drivers/net/dm9000e.c b/drivers/net/dm9000e.c
+index d876083..5ab26be 100644
+--- a/drivers/net/dm9000e.c
++++ b/drivers/net/dm9000e.c
+@@ -241,7 +241,7 @@ static netdev_tx_t dm9000e_ndo_start_xmit(struct sk_buff *skb,
+ 		data = skb->data;
+ 	}
+ 	
+-	dev->trans_start = jiffies;
++/*	dev->trans_start = jiffies; */
+ 	info->skb = skb;
+ 	
+ 	info->tx_data(data, len);
+@@ -252,12 +252,11 @@ static netdev_tx_t dm9000e_ndo_start_xmit(struct sk_buff *skb,
+ 	int reg = read_data(DM9000_TCR);
+ 	reg |= 0x1;
+ 	write_data(reg, DM9000_TCR);
++	dev_kfree_skb(skb);
+ 
+ 	netif_stop_queue(dev);
+ 
+ 	return 0;
+-
+-
+ }
+ 
+ static void dm9000e_ndo_tx_timeout(struct net_device *dev)
+@@ -269,11 +268,11 @@ static void dm9000e_ndo_tx_timeout(struct net_device *dev)
+ 	generic_handle_irq(info->irq);
+ }
+ 
+-static void handle_irq(struct net_device *dev)
++static void dm9000e_handle_irq(struct net_device *dev)
+ {
+ 	struct dm9000e_info *info = netdev_priv(dev);
+ 	if (info->int_status & INT_TX) {
+-		dev_kfree_skb(info->skb);
++		dev_dbg(&dev->dev, "tx complete\n");
+ 		netif_wake_queue(dev);
+ 	} else if (info->int_status & INT_RX) {
+ 		dm9000e_rx(dev);
+@@ -296,16 +295,19 @@ static irqreturn_t dm9000e_irq_handler(int irq, void *dev_id)
+ {
+ 	struct dm9000e_info *info = netdev_priv(dev_id);
+ 	unsigned int reg = read_data(DM9000_ISR);
++	unsigned int new;
++	dev_dbg(&((struct net_device *)dev_id)->dev, 
++			"%s:DM9000_ISR = %08x\n", __func__, reg);
+ 	if (reg & 0x1) {
+ 		info->int_status |= INT_RX;
+-		reg |= 0x1;
++		new |= 0x1;
+ 	} else if (reg & (1 << 1)) {
+ 		info->int_status |= INT_TX;
+-		reg |= 1 << 1;
++		new |= 1 << 1;
+ 	}
+-	write_data(reg, DM9000_ISR);
++	write_data(new, DM9000_ISR);
+ 
+-	handle_irq(dev_id);
++	dm9000e_handle_irq(dev_id);
+ 
+ 	return IRQ_HANDLED;
+ }
+@@ -356,6 +358,11 @@ static int dm9000e_probe(struct platform_device *device)
+ 	int extint0 = ioread32(GPIO_VA + EXTINT0);
+ 	extint0 &= ~(7 << 28);
+ 	extint0 |= (1 << 28);
++	iowrite32(extint0, GPIO_VA + EXTINT0);
++	
++	int eintmask = ioread32(GPIO_VA + EINTMASK);
++	eintmask &= ~(1 << 7);
++	iowrite32(eintmask, GPIO_VA + EINTMASK);
+ 
+ 	ret = register_netdev(netdev);
+ 	
+-- 
+1.7.1
+

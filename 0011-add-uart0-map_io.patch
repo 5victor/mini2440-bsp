@@ -1,0 +1,36 @@
+From 526d70d8b545d575600c96c2c8f38ca1ed2aea97 Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Thu, 21 Jul 2011 20:53:57 +0800
+Subject: [PATCH 11/36] add uart0 map_io
+
+---
+ arch/arm/mach-s3c2440x/io.c |   11 ++++++-----
+ 1 files changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/arch/arm/mach-s3c2440x/io.c b/arch/arm/mach-s3c2440x/io.c
+index 70d7917..65d3322 100644
+--- a/arch/arm/mach-s3c2440x/io.c
++++ b/arch/arm/mach-s3c2440x/io.c
+@@ -5,13 +5,14 @@
+ #include <asm/memory.h>
+ #include <asm/page.h>
+ 
+-#define MAP_DESC_ENTRY(_pa, _size) {_pa, __phys_to_pfn(_pa), _size, MT_DEVICE}
++#define MAP_DESC_ENTRY(_va,_pa, _size) {_va, __phys_to_pfn(_pa), _size, MT_DEVICE}
+ 
+ static struct map_desc s3c2440x_map_desc[] __initdata = {
+-	MAP_DESC_ENTRY(MEM_PA, MAP_SIZE),
+-	MAP_DESC_ENTRY(INT_PA, MAP_SIZE),
+-	MAP_DESC_ENTRY(LCD_PA, MAP_SIZE),
+-	MAP_DESC_ENTRY(TIMER_PA, MAP_SIZE)
++	MAP_DESC_ENTRY(MEM_VA, MEM_PA, MAP_SIZE),
++	MAP_DESC_ENTRY(INT_VA, INT_PA, MAP_SIZE),
++	MAP_DESC_ENTRY(LCD_VA, LCD_PA, MAP_SIZE),
++	MAP_DESC_ENTRY(TIMER_VA, TIMER_PA, MAP_SIZE),
++	MAP_DESC_ENTRY(UART0_VA, UART0_PA, MAP_SIZE),
+ };
+ 
+ void __init s3c2440x_map_io(void)
+-- 
+1.7.1
+

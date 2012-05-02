@@ -1,0 +1,66 @@
+From c325bf3df7e290181eb831befb698fdef4e42afb Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Wed, 20 Jul 2011 11:07:09 +0800
+Subject: [PATCH 08/36] some change
+
+---
+ arch/arm/boot/.gitignore        |    1 +
+ arch/arm/mach-s3c2440x/Makefile |    2 +-
+ arch/arm/mach-s3c2440x/io.c     |   17 ++++++++++-------
+ 3 files changed, 12 insertions(+), 8 deletions(-)
+
+diff --git a/arch/arm/boot/.gitignore b/arch/arm/boot/.gitignore
+index ce1c5ff..6deeed3 100644
+--- a/arch/arm/boot/.gitignore
++++ b/arch/arm/boot/.gitignore
+@@ -3,3 +3,4 @@ zImage
+ xipImage
+ bootpImage
+ uImage
++compressed/piggy.gzip
+diff --git a/arch/arm/mach-s3c2440x/Makefile b/arch/arm/mach-s3c2440x/Makefile
+index f635691..82195a8 100644
+--- a/arch/arm/mach-s3c2440x/Makefile
++++ b/arch/arm/mach-s3c2440x/Makefile
+@@ -1,5 +1,5 @@
+ 
+ 
+ 
+-
++obj-y				+=	io.o
+ obj-$(CONFIG_MACH_MINI2440)	+=	mach-mini2440.o
+diff --git a/arch/arm/mach-s3c2440x/io.c b/arch/arm/mach-s3c2440x/io.c
+index b5afbcd..70d7917 100644
+--- a/arch/arm/mach-s3c2440x/io.c
++++ b/arch/arm/mach-s3c2440x/io.c
+@@ -2,17 +2,20 @@
+ #include <linux/kernel.h>
+ #include <mach/hardware.h>
+ #include <asm/mach/map.h>
++#include <asm/memory.h>
++#include <asm/page.h>
+ 
+-#define MAP_DESC_ENTRY(_pa, _size) {_pa##_PA, __phys_to_pfn(_pa), _size, MT_DEVICE}
++#define MAP_DESC_ENTRY(_pa, _size) {_pa, __phys_to_pfn(_pa), _size, MT_DEVICE}
+ 
+-static map_desc s3c2440x_map_desc[] __initdata = {
+-	MAP_DESC_ENTRY(MEM, MAP_SIZE),
+-	MAP_DESC_ENTRY(INT, MAP_SIZE),
+-	MAP_DESC_ENTRY(LCD, MAP_SIZE),
+-	MAP_DESC_ENTRY(TIMER, MAP_SIZE)
++static struct map_desc s3c2440x_map_desc[] __initdata = {
++	MAP_DESC_ENTRY(MEM_PA, MAP_SIZE),
++	MAP_DESC_ENTRY(INT_PA, MAP_SIZE),
++	MAP_DESC_ENTRY(LCD_PA, MAP_SIZE),
++	MAP_DESC_ENTRY(TIMER_PA, MAP_SIZE)
+ };
+ 
+ void __init s3c2440x_map_io(void)
+ {
+-	iotable_init(&s3c2440x_map_desc, ARRAY_SIZE(s3c2440x_map_desc));
++	iotable_init(s3c2440x_map_desc, ARRAY_SIZE(s3c2440x_map_desc));
+ }
++
+-- 
+1.7.1
+

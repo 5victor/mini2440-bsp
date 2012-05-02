@@ -1,0 +1,204 @@
+From 9ff4e8d0471315929e75921225c4c678510a08a0 Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Sat, 23 Jul 2011 19:35:07 +0800
+Subject: [PATCH 16/36] finish board base code, need to start code drivers
+
+---
+ arch/arm/mach-s3c2440x/clock.c              |   47 +++++++++++++++++----------
+ arch/arm/mach-s3c2440x/include/mach/clock.h |    2 +-
+ arch/arm/mach-s3c2440x/io.c                 |    1 +
+ arch/arm/mach-s3c2440x/mach-mini2440.c      |    6 ++--
+ 4 files changed, 35 insertions(+), 21 deletions(-)
+
+diff --git a/arch/arm/mach-s3c2440x/clock.c b/arch/arm/mach-s3c2440x/clock.c
+index 4a9215b..1e3ad25 100644
+--- a/arch/arm/mach-s3c2440x/clock.c
++++ b/arch/arm/mach-s3c2440x/clock.c
+@@ -1,8 +1,12 @@
+ #include <mach/clock.h>
+ #include <mach/hardware.h>
++#include <mach/timex.h>
+ #include <mach/regs-clk-pm.h>
+ #include <linux/list.h>
+ #include <linux/kernel.h>
++#include <linux/string.h>
++#include <asm/io.h>
++#include <linux/err.h>
+ 
+ static struct list_head clks = LIST_HEAD_INIT(clks);
+ 
+@@ -18,7 +22,7 @@ struct clk *clk_get(struct device *dev, const char *id)
+ 
+ 	list_for_each(ptr, &clks) {
+ 		entry = list_entry(ptr, struct clk, node);
+-		if (node->dev == dev && !(strcmp(node->name, id))) {
++		if (entry->dev == dev && !(strcmp(entry->name, id))) {
+ 			return entry;
+ 		}
+ 	}
+@@ -32,8 +36,8 @@ int clk_enable(struct clk *clk)
+ 		clk_enable(clk->parent);
+ 	}
+ 
+-	if (clk->ops->enable) {
+-		clk->ops->enable(clk);
++	if (clk->ops.enable) {
++		clk->ops.enable(clk);
+ 	}
+ 
+ 	return 0;
+@@ -41,15 +45,15 @@ int clk_enable(struct clk *clk)
+ 
+ void clk_disable(struct clk *clk)
+ {
+-	if (clk->ops->disable) {
+-		clk->ops->disable(clk);
++	if (clk->ops.disable) {
++		clk->ops.disable(clk);
+ 	}
+ }
+ 
+ unsigned long clk_get_rate(struct clk *clk)
+ {
+-	if (clk->ops->get_rate) {
+-		return clk->ops->get_rate(clk);
++	if (clk->ops.get_rate) {
++		return clk->ops.get_rate(clk);
+ 	} else {
+ 		return clk->rate;
+ 	}
+@@ -68,8 +72,8 @@ long clk_round_rate(struct clk *clk, unsigned long rate)
+ int clk_set_rate(struct clk *clk, unsigned long rate)
+ {
+ 	clk->rate = rate;
+-	if (clk->set_rate) {
+-		clk->set_rate(clk, rate);
++	if (clk->ops.set_rate) {
++		clk->ops.set_rate(clk, rate);
+ 	}
+ 	return 0;
+ }
+@@ -80,7 +84,7 @@ int clk_set_parent(struct clk *clk, struct clk *parent)
+ 	return 0;
+ }
+ 
+-struct clk *clk_get_parent(sturct clk *clk)
++struct clk *clk_get_parent(struct clk *clk)
+ {
+ 	return clk->parent;
+ }
+@@ -96,7 +100,7 @@ int clk_add_alias(const char *alias, const char *alias_dev_name, char *id,
+ 	return -EIO;
+ }
+ 
+-static unsigned long get_mpll()
++static unsigned long get_mpll(void)
+ {
+ 	unsigned int mdiv, pdiv, sdiv;
+ 	unsigned int tmp;
+@@ -143,30 +147,37 @@ static unsigned long hclk_get_rate(struct clk *c)
+ 		}
+ 		break;
+ 	default:
++		;
+ 	}
+ 
+ 	return tmp;
+ }
+ 
++static struct clk hclk;
++
+ static unsigned long pclk_get_rate(struct clk *c)
+ {
+ 	int tmp;
+ 	int pdivn = ioread8(CLK_PM_VA + CLKDIVN);
+ 	pdivn &= 0x1;
+ 	tmp = clk_get_rate(&hclk);
+-	return pdivn?tmp/2:tmp
++	return pdivn?tmp/2:tmp;
+ }
+ 
+ static int fclk_enable(struct clk *c)
+ {
+ 	unsigned int mpll;
+ 	unsigned int clkdivn;
+-	mpll = (0x7F << 12) | (0x2 << 4) | 0x1;
++	mpll = (0x7F << 12) | (0x2 << 4) | 0x1;  /*405MHZ*/
+ 	iowrite32(mpll, CLK_PM_VA + MPLLCON);
+-	clkdivn = (1 << 1) | 1;
++	clkdivn = (2 << 1) | 1; /*HCLK = FCLK/4 PCLK = HCLK/2*/
+ 	iowrite32(clkdivn, CLK_PM_VA + CLKDIVN);
+ 
+-	asm("XXX");
++	asm("mrc p15, 0, r0, c1, c0, 0\n"
++	    "orr r0, r0, #0xC0000000\n"
++	    "mcr p15, 0, r0, c1, c0, 0"
++	    :::"r0");
++	return 0;
+ }
+ 
+ static struct clk fclk = {
+@@ -197,9 +208,11 @@ static struct clk pclk = {
+ 
+ void s3c2440x_clock_init(void)
+ {
+-	early_printk("s3c2440x_clock_init\n");
++	early_printk("s3c2440x_clock_init:");
+ 	clk_add(&fclk);
+ 	clk_add(&hclk);
+ 	clk_add(&pclk);
+-	clk_enable(fclk);
++	clk_enable(&fclk);
++	early_printk("FCLK=%ld, HCLK=%ld, PCLK=%ld\n", clk_get_rate(&fclk),
++			clk_get_rate(&hclk), clk_get_rate(&pclk));
+ }
+diff --git a/arch/arm/mach-s3c2440x/include/mach/clock.h b/arch/arm/mach-s3c2440x/include/mach/clock.h
+index 684e863..d33035b 100644
+--- a/arch/arm/mach-s3c2440x/include/mach/clock.h
++++ b/arch/arm/mach-s3c2440x/include/mach/clock.h
+@@ -2,7 +2,7 @@
+ #define __ASM_ARCH_CLOCK_H
+ 
+ #include <linux/clk.h>
+-
++#include <linux/list.h>
+ /*
+  * base on the CLKCON register use clk::index to identify which device's clock
+  * to be enable or disable, which will have the common enable, disable function. if the index less than 2, it will have it private enable disable function such as fclk, pclk
+diff --git a/arch/arm/mach-s3c2440x/io.c b/arch/arm/mach-s3c2440x/io.c
+index 65d3322..136e223 100644
+--- a/arch/arm/mach-s3c2440x/io.c
++++ b/arch/arm/mach-s3c2440x/io.c
+@@ -13,6 +13,7 @@ static struct map_desc s3c2440x_map_desc[] __initdata = {
+ 	MAP_DESC_ENTRY(LCD_VA, LCD_PA, MAP_SIZE),
+ 	MAP_DESC_ENTRY(TIMER_VA, TIMER_PA, MAP_SIZE),
+ 	MAP_DESC_ENTRY(UART0_VA, UART0_PA, MAP_SIZE),
++	MAP_DESC_ENTRY(CLK_PM_VA, CLK_PM_PA, MAP_SIZE),
+ };
+ 
+ void __init s3c2440x_map_io(void)
+diff --git a/arch/arm/mach-s3c2440x/mach-mini2440.c b/arch/arm/mach-s3c2440x/mach-mini2440.c
+index 829c726..e40f868 100644
+--- a/arch/arm/mach-s3c2440x/mach-mini2440.c
++++ b/arch/arm/mach-s3c2440x/mach-mini2440.c
+@@ -10,14 +10,14 @@ void mini2440_init_machine(void)
+ 
+ }
+ 
+-void mini2440_init_map(void)
++void mini2440_map_io(void)
+ {
+-	s3c2440x_init_map();
++	s3c2440x_map_io();
+ 	s3c2440x_clock_init();
+ }
+ 
+ MACHINE_START(MINI2440, "mini2440")
+-	.map_io = mini2440_init_map,
++	.map_io = mini2440_map_io,
+ 	.timer = &s3c2440x_timer,
+ 	.init_irq = s3c2440x_init_irq,
+ 	.init_machine = mini2440_init_machine,
+-- 
+1.7.1
+

@@ -1,0 +1,172 @@
+From 9ed9bce6601fa1d1d87e010fef829c73371c1f34 Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Thu, 21 Jul 2011 17:11:49 +0800
+Subject: [PATCH 09/36] finish low level debug
+
+---
+ arch/arm/boot/compressed/.gitignore               |    2 +
+ arch/arm/mach-s3c2440x/include/mach/debug-macro.S |   26 +++++++++++++++++
+ arch/arm/mach-s3c2440x/include/mach/hardware.h    |   20 ++++++++++++-
+ arch/arm/mach-s3c2440x/include/mach/regs-timer.h  |    4 +++
+ arch/arm/mach-s3c2440x/include/mach/regs-uart.h   |   16 +++++++++++
+ arch/arm/mach-s3c2440x/include/mach/uncompress.h  |   31 +++++++++++++++++++++
+ 6 files changed, 97 insertions(+), 2 deletions(-)
+ create mode 100644 arch/arm/mach-s3c2440x/include/mach/debug-macro.S
+ create mode 100644 arch/arm/mach-s3c2440x/include/mach/regs-uart.h
+ create mode 100644 arch/arm/mach-s3c2440x/include/mach/uncompress.h
+
+diff --git a/arch/arm/boot/compressed/.gitignore b/arch/arm/boot/compressed/.gitignore
+index ab204db..dc763fd 100644
+--- a/arch/arm/boot/compressed/.gitignore
++++ b/arch/arm/boot/compressed/.gitignore
+@@ -1,3 +1,5 @@
+ font.c
+ piggy.gz
+ vmlinux.lds
++lib1funcs.S
++vmlinux
+diff --git a/arch/arm/mach-s3c2440x/include/mach/debug-macro.S b/arch/arm/mach-s3c2440x/include/mach/debug-macro.S
+new file mode 100644
+index 0000000..38ccbdd
+--- /dev/null
++++ b/arch/arm/mach-s3c2440x/include/mach/debug-macro.S
+@@ -0,0 +1,26 @@
++#include <mach/hardware.h>
++#include <mach/regs-uart.h>
++
++.macro addruart, rp, rv
++	ldr \rp, =UART0_PA
++	ldr \rv, =UART0_VA
++.endm
++
++.macro waituart, rd, rx
++1001:
++	ldr \rd, [\rx, #UTRSTAT]
++	TST \rd, #2
++	BEQ 1001b	
++.endm
++
++.macro senduart, rd, rx
++	strb \rd, [\rx, #UTXH]
++.endm
++
++.macro busyuart, rd, rx
++1001:
++	ldr \rd, [\rx, #UTRSTAT]
++	TST \rd, #2
++	BEQ 1001b
++.endm
++
+diff --git a/arch/arm/mach-s3c2440x/include/mach/hardware.h b/arch/arm/mach-s3c2440x/include/mach/hardware.h
+index bec8f7b..3a31369 100644
+--- a/arch/arm/mach-s3c2440x/include/mach/hardware.h
++++ b/arch/arm/mach-s3c2440x/include/mach/hardware.h
+@@ -10,12 +10,28 @@
+ #define NAND_PA		0x4E000000
+ #define	CAM_PA		0x4F000000
+ #define TIMER_PA	0x51000000
++#define UART0_PA	0x50000000
++#define UART1_PA	0x50004000
++#define UART2_PA	0x50008000
+ 
+ 
+ #define MAP_VA_BASE	0xFF000000
+ 
+-#define MAP_VA(x)	UL(((x - MEM_PA) >> 8) + MAP_VA_BASE)
+-#define MAP_SIZE	0x10000
++#define MAP_VA(x)	(((x - MEM_PA) >> 8) + MAP_VA_BASE)
++#define MAP_SIZE	SZ_1K
++
++#define MEM_VA		MAP_VA(MEM_PA)
++#define USBH_VA		MAP_VA(USBH_PA)
++#define INT_VA		MAP_VA(INT_PA)
++#define DMA_VA		MAP_VA(DMA_PA)
++#define CLK_PM_VA	MAP_VA(CLK_PM_PA)
++#define	LCD_VA		MAP_VA(LCD_PA)
++#define	NAND_VA		MAP_VA(NAND_PA)
++#define	CAM_VA		MAP_VA(CAM_PA)
++#define	TIMER_VA	MAP_VA(TIMER_PA)
++#define	UART0_VA	MAP_VA(UART0_PA)
++#define	UART1_VA	MAP_VA(UART1_PA)
++#define	UART2_VA	MAP_VA(UART2_PA)
+ 
+ 
+ #endif
+diff --git a/arch/arm/mach-s3c2440x/include/mach/regs-timer.h b/arch/arm/mach-s3c2440x/include/mach/regs-timer.h
+index 26aec1a..597e928 100644
+--- a/arch/arm/mach-s3c2440x/include/mach/regs-timer.h
++++ b/arch/arm/mach-s3c2440x/include/mach/regs-timer.h
+@@ -1,3 +1,6 @@
++#ifndef __ASM_ARCH_REGS_TIMER_H
++#define __ASM_ARCH_REGS_TIMER_H
++
+ #define TCFG0	0x0
+ #define TCFG1	0x4
+ #define TCON	0x8
+@@ -16,3 +19,4 @@
+ #define	TCNTB4	0x3C
+ #define	TCNTO4	0x40
+ 
++#endif
+diff --git a/arch/arm/mach-s3c2440x/include/mach/regs-uart.h b/arch/arm/mach-s3c2440x/include/mach/regs-uart.h
+new file mode 100644
+index 0000000..97d387c
+--- /dev/null
++++ b/arch/arm/mach-s3c2440x/include/mach/regs-uart.h
+@@ -0,0 +1,16 @@
++#ifndef __ASM_ARCH_REGS_UART_H
++#define __ASM_ARCH_REGS_UART_H
++
++#define	ULCON	0x0
++#define	UCON	0x4
++#define	UFCON	0x8
++#define	UMCON	0xC
++#define	UTRSTAT	0x10
++#define	UERSTAT	0x14
++#define	UFSTAT	0x18
++#define	UMSTAT	0x1C
++#define UTXH	0x20
++#define	URXH	0x24
++#define	UBRDIV	0x28
++
++#endif
+diff --git a/arch/arm/mach-s3c2440x/include/mach/uncompress.h b/arch/arm/mach-s3c2440x/include/mach/uncompress.h
+new file mode 100644
+index 0000000..ecc0b44
+--- /dev/null
++++ b/arch/arm/mach-s3c2440x/include/mach/uncompress.h
+@@ -0,0 +1,31 @@
++#ifndef __ASM_ARCH_UNCOMPRESS_H
++#define __ASM_ARCH_UNCOMPRESS_H
++
++/*
++arch/arm/boot/compressed/misc.c:109: 错误：隐式声明函数‘putc’
++arch/arm/boot/compressed/misc.c:113: 错误：隐式声明函数‘flush’
++arch/arm/boot/compressed/misc.c: 在函数‘decompress_kernel’中:
++arch/arm/boot/compressed/misc.c:198: 错误：隐式声明函数‘arch_decomp_setup’
++*/
++
++#include <mach/hardware.h>
++#include <mach/regs-uart.h>
++
++void putc(unsigned char c)
++{
++	while (!(*(unsigned char *)(UART0_PA + UTRSTAT) & (1 << 1)))
++		;
++	*(unsigned char *)(UART0_PA + UTXH) = c;
++}
++
++void flush(void)
++{
++	;
++}
++
++void arch_decomp_setup(void)
++{
++
++}
++
++#endif
+-- 
+1.7.1
+

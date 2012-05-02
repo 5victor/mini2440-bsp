@@ -1,0 +1,453 @@
+From adc2bc614bbda569d24219f86c6c4eb1ca7fc1db Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Tue, 26 Jul 2011 10:17:50 +0800
+Subject: [PATCH 19/36] seem to finish the uart driver
+
+---
+ arch/arm/mach-s3c2440x/include/mach/irqs.h |   21 ++++-
+ arch/arm/mach-s3c2440x/irq.c               |   51 ++++++++--
+ arch/arm/mach-s3c2440x/mach-mini2440.c     |   92 ++++++++++++++++
+ drivers/serial/s3c2440x.c                  |  163 +++++++++++++++++++++++-----
+ 4 files changed, 294 insertions(+), 33 deletions(-)
+
+diff --git a/arch/arm/mach-s3c2440x/include/mach/irqs.h b/arch/arm/mach-s3c2440x/include/mach/irqs.h
+index 977597b..0b0cccc 100644
+--- a/arch/arm/mach-s3c2440x/include/mach/irqs.h
++++ b/arch/arm/mach-s3c2440x/include/mach/irqs.h
+@@ -35,9 +35,28 @@
+ #define INT_RTC		30
+ #define INT_ADC		31
+ 
++#define BASE_IRQ_NUM	32
++/* sub interrupt */
+ 
++#define INT_RXD0	32
++#define INT_TXD0	33
++#define INT_ERR0	34
++#define INT_RXD1	35
++#define INT_TXD1	36
++#define INT_ERR1	37
++#define INT_RXD2	38
++#define INT_TXD2	39
++#define INT_ERR2	40
++#define INT_TC		41
++#define INT_ADC_S	42
++#define INT_CAM_C	43
++#define INT_CAM_P	44
++#define INT_WDT		45
++#define INT_AC97	46
+ 
+-#define NR_IRQS		32
++/* extern interrupt*/
++
++#define NR_IRQS		(46 + 1)
+ 
+ void s3c2440x_init_irq(void);
+ 
+diff --git a/arch/arm/mach-s3c2440x/irq.c b/arch/arm/mach-s3c2440x/irq.c
+index 0f0bcfe..b268db5 100644
+--- a/arch/arm/mach-s3c2440x/irq.c
++++ b/arch/arm/mach-s3c2440x/irq.c
+@@ -30,9 +30,6 @@ void s3c2440x_irq_unmask(unsigned int irq)
+ 	iowrite32(mask, INT_VA + INTMSK);
+ }
+ 
+-
+-
+-
+ struct irq_chip s3c2440x_chip = {
+ 	.name	= "s3c2440x_chip",
+ 	.ack	= s3c2440x_irq_ack,
+@@ -40,12 +37,52 @@ struct irq_chip s3c2440x_chip = {
+ 	.unmask	= s3c2440x_irq_unmask,
+ };
+ 
++static void s3c2440x_uart_demux(unsigned int start)
++{
++	int subsrc = ioread32(INT_VA + SUBSRCPND);
++	int submsk = ioread32(INT_VA + INTSUBMSK);
++	int offset = start - BASE_IRQ_NUM;
++
++	subsrc &= ~submsk;
++	subsrc = subsrc >> offset;
++	if (subsrc & 0x1) {
++		generic_handle_irq(start);
++	} else if (subsrc & 0x2) {
++		generic_handle_irq(start + 1);
++	} else if (subsrc & 0x4) {
++		generic_handle_irq(start + 2);
++	}
++}
++
++static void s3c2440x_uart_demux0(unsigned int irq, struct irq_desc *desc)
++{
++	s3c2440x_uart_demux(INT_RXD0);
++}
++
++static void s3c2440x_uart_demux1(unsigned int irq, struct irq_desc *desc)
++{
++	s3c2440x_uart_demux(INT_RXD1);
++}
++
++static void s3c2440x_uart_demux2(unsigned int irq, struct irq_desc *desc)
++{
++	s3c2440x_uart_demux(INT_RXD2);
++}
++
+ void __init s3c2440x_init_irq(void)
+ {
+-	int i;
+-	for (i = 0; i < NR_IRQS; i++) {
+-		set_irq_chip(i, &s3c2440x_chip);
+-		set_irq_handler(i, handle_level_irq);
++	int irq;
++	for (irq = 0; irq < BASE_IRQ_NUM; irq++) {
++		switch (irq) {
++
++		default:
++			set_irq_chip(irq, &s3c2440x_chip);
++			set_irq_handler(irq, handle_level_irq);
++		}
+ 	}
++	
++	set_irq_chained_handler(INT_UART0, s3c2440x_uart_demux0);
++	set_irq_chained_handler(INT_UART1, s3c2440x_uart_demux1);
++	set_irq_chained_handler(INT_UART2, s3c2440x_uart_demux2);
+ }
+ 
+diff --git a/arch/arm/mach-s3c2440x/mach-mini2440.c b/arch/arm/mach-s3c2440x/mach-mini2440.c
+index e40f868..f9771b0 100644
+--- a/arch/arm/mach-s3c2440x/mach-mini2440.c
++++ b/arch/arm/mach-s3c2440x/mach-mini2440.c
+@@ -4,9 +4,101 @@
+ #include <mach/timex.h>
+ #include <mach/irqs.h>
+ #include <mach/clock.h>
++#include <linux/platform_device.h>
++#include <linux/kernel.h>
++#include <linux/init.h>
++#include <mach/hardware.h>
++
++
++
++#define S3C2440X_UART_NUM	3
++
++static struct resource s3c2440x_uart0_res[] = {
++	[0] = {
++		.start	= UART0_VA,
++		.end	= UART0_VA + 0x30,
++		.flags	= IORESOURCE_MEM,
++	},
++	[1] = {
++		.start	= INT_RXD0,
++		.end	= INT_RXD0,
++		.flags	= IORESOURCE_IRQ,
++	},
++	[2] = {
++		.start	= INT_TXD0,
++		.end	= INT_TXD0,
++		.flags	= IORESOURCE_IRQ,
++	}
++};
++
++static struct resource s3c2440x_uart1_res[] = {
++	[0] = {
++		.start	= UART1_VA,
++		.end	= UART1_VA + 0x30,
++		.flags	= IORESOURCE_MEM,
++	},
++	[1] = {
++		.start	= INT_RXD1,
++		.end	= INT_RXD1,
++		.flags	= IORESOURCE_IRQ,
++	},
++	[2] = {
++		.start	= INT_TXD1,
++		.end	= INT_TXD1,
++		.flags	= IORESOURCE_IRQ,
++	}
++};
++
++static struct resource s3c2440x_uart2_res[] = {
++	[0] = {
++		.start	= UART2_VA,
++		.end	= UART2_VA + 0x30,
++		.flags	= IORESOURCE_MEM,
++	},
++	[1] = {
++		.start	= INT_RXD2,
++		.end	= INT_RXD2,
++		.flags	= IORESOURCE_IRQ,
++	},
++	[2] = {
++		.start	= INT_TXD2,
++		.end	= INT_TXD2,
++		.flags	= IORESOURCE_IRQ,
++	}
++};
++
++static struct platform_device s3c2440x_uarts[S3C2440X_UART_NUM] = {
++	[0] = {
++		.name = "s3c2440x_uart",
++		.id = 0,
++		.resource = &s3c2440x_uart0_res,
++		.num_resources = ARRAY_SIZE(s3c2440x_uart0_res),
++	},
++	[1] = {
++		.name = "s3c2440x_uart",
++		.id = 1,
++		.resource = &s3c2440x_uart1_res,
++		.num_resources = ARRAY_SIZE(s3c2440x_uart1_res),
++	},
++	[2] = {
++		.name = "s3c2440x_uart",
++		.id = 2,
++		.resource = &s3c2440x_uart2_res,
++		.num_resources = ARRAY_SIZE(s3c2440x_uart2_res),
++	},
++};
++
++static struct platform_device *mini2440_devices[] __initdata = {
++	s3c2440x_uarts,
++	s3c2440x_uarts + 1,
++	s3c2440x_uarts + 2,
++};
++
+ 
+ void mini2440_init_machine(void)
+ {
++	platform_add_devices(mini2440_devices,
++			ARRAY_SIZE(mini2440_devices));
+ 
+ }
+ 
+diff --git a/drivers/serial/s3c2440x.c b/drivers/serial/s3c2440x.c
+index 44aed59..00f4b89 100644
+--- a/drivers/serial/s3c2440x.c
++++ b/drivers/serial/s3c2440x.c
+@@ -15,36 +15,140 @@
+ 
+ MODULE_LICENSE("GPL");
+ 
+-irq_handler_t s3c2440x_uart_interrupt(int irq, void *dev_id,
+-					struct pt_regs *regs)
++static irqreturn_t s3c2440x_uart_irq_rx(int irq, void *dev_id)
+ {
+ 	struct uart_port *port = dev_id;
+-
++	unsigned int utrstat;
++	unsigned int uerstat;
++	unsigned char ch;
++	while(1) {
++		utrstat = ioread8((unsigned int)port->membase + UTRSTAT);
++		uerstat = ioread8((unsigned int)port->membase + UTRSTAT);
++		if (!(utrstat & (1 << 1))) {
++			break;
++		}
++		
++		if (uart_handle_sysrq_char(port, ch)) {
++			continue;
++		}
++
++		ch = ioread8((unsigned int)port->membase + URXH);
++		uart_insert_char(port, uerstat, 0, ch, 0);
++	}
+ 
+ 	return IRQ_HANDLED;
+ /*	return IRQ_NONE;*/
+ }
+ 
+-void s3c2440x_uart_startup(struct uart_port *port)
++static irqreturn_t s3c2440x_uart_irq_tx(int irq, void *dev_id)
++{
++	struct uart_port *port = dev_id;
++	struct circ_buf *xmit = &port->state->xmit;
++	unsigned int utrstat;	
++	while(xmit->head != xmit->tail) {
++		utrstat  = ioread8((unsigned int)port->membase + UTRSTAT);
++		if (!(utrstat & (1 << 1))) {
++			break;
++		}
++
++		iowrite8(xmit->buf[xmit->tail], (unsigned int)port->membase 							+ UTXH);
++		xmit->tail++;
++		if (xmit->tail == UART_XMIT_SIZE) {
++			xmit->tail = 0;
++		}
++
++	}
++
++	return IRQ_HANDLED;
++}
++
++static unsigned int s3c2440x_uart_tx_empty(struct uart_port *port)
++{
++	printk("%s called\n", __FUNCTION__);
++	return 0;
++}
++
++static void s3c22440x_uart_stop_tx(struct uart_port *port)
++{
++
++}
++
++static void s3c2440x_uart_start_tx(struct uart_port *port)
++{
++
++}
++
++static void s3c2440x_uart_stop_rx(struct uart_port *port)
++{
++
++}
++
++static unsigned int s3c2440x_uart_get_mctrl(struct uart_port *port)
++{
++	
++	return 0;
++}
++
++static void s3c2440x_uart_set_mctrl(struct uart_port *port, unsigned int mctrl)
++{
++
++}
++
++static void s3c2440x_uart_config_port(struct uart_port *port, int flags)
++{
++	unsigned int ucon;
++	ucon = ioread32((unsigned int)port->membase + UCON);
++	ucon &= ~((0x3 << 2) | (0x3 << 0));
++	ucon |= (1 << 2) | (1 << 0);
++	iowrite32(ucon, (unsigned int)port->membase + UCON);
++}
++
++static void s3c2440x_uart_startup(struct uart_port *port)
+ {
+ 	int ret;
+-	ret = request_irq(port->irq, s3c2440x_uart_interrupt,
++	int irq_rx;
++	int irq_tx;
++
++	irq_rx = platform_get_irq(port->private_data, 1);
++	irq_tx = platform_get_irq(port->private_data, 2);
++
++	ret = request_irq(irq_rx, s3c2440x_uart_irq_rx,
+ 			0, "s3c2440x_uart", port);
+ 	if (ret) {
+-		early_printk("s3c2440x_uart_startup:request_irq return %d\n"
++		printk("s3c2440x_uart_startup:request_irq return %d\n"
+ 				,ret);
++		goto out2;
++	}
++	
++	ret = request_irq(irq_tx, s3c2440x_uart_irq_tx,
++			0, "s3c2440x_uart", port);
++	if (ret) {
++		printk("%s:request_irq fail %d\n", __FUNCTION__, ret);
++		goto out1;
+ 	}
+ 
++	return ;
+ 
++out1:
++	free_irq(irq_rx, port);
++out2:
++	return ;
+ }
+ 
+-void s3c2440x_uart_shutdown(struct uart_port *port)
++static void s3c2440x_uart_shutdown(struct uart_port *port)
+ {
+-	free_irq(port->irq, port);
++	int irq_rx;
++	int irq_tx;
++	
++	irq_rx = platform_get_irq(port->private_data, 1);
++	irq_tx = platform_get_irq(port->private_data, 2);
++
++	free_irq(irq_rx, port);
++	free_irq(irq_tx, port);
+ }
+ 
+-void s3c2440x_uart_set_termios(struct uart_port *port, struct ktermios *new,
+-					struct ktermios *old)
++static void s3c2440x_uart_set_termios(struct uart_port *port,
++		struct ktermios *new, struct ktermios *old)
+ {
+ 	/*int baud;
+ 	int parity;
+@@ -97,7 +201,8 @@ void s3c2440x_uart_set_termios(struct uart_port *port, struct ktermios *new,
+ 	return ;
+ }
+ 
+-void s3c2440x_uart_poll_put_char(struct uart_port *port, unsigned char c)
++static void s3c2440x_uart_poll_put_char(struct uart_port *port,
++					unsigned char c)
+ {
+ 	int utrstat;
+ 	while(1) {
+@@ -109,11 +214,28 @@ void s3c2440x_uart_poll_put_char(struct uart_port *port, unsigned char c)
+ 	iowrite8(c, (unsigned int)port->membase + UTXH);
+ }
+ 
+-static struct uart_ops s3c2440x_uart_ops = {
+-	.startup = s3c2440x_uart_startup,
+-	.shutdown = s3c2440x_uart_shutdown,
+-	.set_termios = s3c2440x_uart_set_termios,
++static int s3c2440x_uart_poll_get_char(struct uart_port *port)
++{
++	int utrstat;
++	while(1) {
++		utrstat = ioread8((unsigned int)port->membase + UTRSTAT);
++		if (utrstat & 0x1)
++			break;
++	}
+ 
++	return ioread8((unsigned int)port->membase + URXH);
++}
++
++static struct uart_ops s3c2440x_uart_ops = {
++	.startup	= s3c2440x_uart_startup,
++	.shutdown	= s3c2440x_uart_shutdown,
++	.set_termios	= s3c2440x_uart_set_termios,
++	.poll_put_char	= s3c2440x_uart_poll_put_char,
++	.poll_get_char	= s3c2440x_uart_poll_get_char,
++	.config_port	= s3c2440x_uart_config_port,
++	.get_mctrl	= s3c2440x_uart_get_mctrl,
++	.set_mctrl	= s3c2440x_uart_set_mctrl,
++	.tx_empty	= s3c2440x_uart_tx_empty,
+ };
+ 
+ 
+@@ -158,27 +280,18 @@ static int s3c2440x_serial_probe(struct platform_device *device)
+ {
+ 	int index = device->id;
+ 	struct resource *mem;
+-	int irq;
+ 	int ret;
+ 	mem = platform_get_resource(device, IORESOURCE_MEM, 0);
+-	irq = platform_get_irq(device, 1);
+ 	
+ 	s3c2440x_uart_ports[index].membase = mem->start;
+-	s3c2440x_uart_ports[index].irq = irq;
+-	
++	s3c2440x_uart_ports[index].private_data = device;	
+ 	ret = uart_add_one_port(&s3c2440x_uart_drv,
+ 				&s3c2440x_uart_ports[index]);
+ 
+ 	if (ret ) {
+ 		early_printk("uart_add_one_port fail, port:%d\n", index);
+-		goto out1;
+ 	}
+ 
+-	return 0;
+-
+-out1:
+-	free_irq(irq, &s3c2440x_uart_ports[index]);
+-out2:
+ 	return ret;
+ 
+ }
+-- 
+1.7.1
+

@@ -1,0 +1,137 @@
+From 95409aaa987560cc53a99ab3ec0b41b2baf446d5 Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Wed, 3 Aug 2011 10:06:23 +0800
+Subject: [PATCH 25/36] add spi reg
+
+---
+ arch/arm/mach-s3c2440x/include/mach/hardware.h |    5 +++-
+ arch/arm/mach-s3c2440x/include/mach/regs-spi.h |   12 +++++++++
+ arch/arm/mach-s3c2440x/io.c                    |    1 +
+ drivers/net/dm9000e.c                          |   31 +++++++++++++++++------
+ 4 files changed, 40 insertions(+), 9 deletions(-)
+ create mode 100644 arch/arm/mach-s3c2440x/include/mach/regs-spi.h
+
+diff --git a/arch/arm/mach-s3c2440x/include/mach/hardware.h b/arch/arm/mach-s3c2440x/include/mach/hardware.h
+index 6c34c18..a8af109 100644
+--- a/arch/arm/mach-s3c2440x/include/mach/hardware.h
++++ b/arch/arm/mach-s3c2440x/include/mach/hardware.h
+@@ -14,7 +14,7 @@
+ #define UART1_PA	0x50004000
+ #define UART2_PA	0x50008000
+ #define GPIO_PA		0x56000000
+-
++#define SPI_PA		0x59000000
+ 
+ #define MAP_VA_BASE	0xF0000000
+ 
+@@ -34,5 +34,8 @@
+ #define	UART1_VA	MAP_VA(UART1_PA)
+ #define	UART2_VA	MAP_VA(UART2_PA)
+ #define GPIO_VA		MAP_VA(GPIO_PA)
++#define SPI_VA		MAP_VA(SPI_PA)
++#define SPI0_VA		SPI_VA
++#define SPI1_VA		(SPI_VA + 0x20)
+ 
+ #endif
+diff --git a/arch/arm/mach-s3c2440x/include/mach/regs-spi.h b/arch/arm/mach-s3c2440x/include/mach/regs-spi.h
+new file mode 100644
+index 0000000..9605727
+--- /dev/null
++++ b/arch/arm/mach-s3c2440x/include/mach/regs-spi.h
+@@ -0,0 +1,12 @@
++#ifndef __ASM_ARCH_REGS_SPI_H
++#define __ASM_ARCH_REGS_SPI_H
++
++#DEFINE SPCON	0X0
++#DEFINE SPSTA	0X4
++#DEFINE SPPIN	0X8
++#DEFINE SPPRE	0XC
++#DEFINE SPTDAT	0X10
++#DEFINE SPRDAT	0X14
++
++
++#endif
+diff --git a/arch/arm/mach-s3c2440x/io.c b/arch/arm/mach-s3c2440x/io.c
+index a404eab..6d585a5 100644
+--- a/arch/arm/mach-s3c2440x/io.c
++++ b/arch/arm/mach-s3c2440x/io.c
+@@ -15,6 +15,7 @@ static struct map_desc s3c2440x_map_desc[] __initdata = {
+ 	MAP_DESC_ENTRY(UART0_VA, UART0_PA, MAP_SIZE),
+ 	MAP_DESC_ENTRY(CLK_PM_VA, CLK_PM_PA, MAP_SIZE),
+ 	MAP_DESC_ENTRY(GPIO_VA, GPIO_PA, MAP_SIZE),
++	MAP_DESC_ENTRY(SPI_VA, SPI_PA, MAP_SIZE),
+ };
+ 
+ void __init s3c2440x_map_io(void)
+diff --git a/drivers/net/dm9000e.c b/drivers/net/dm9000e.c
+index c1f3499..303807c 100644
+--- a/drivers/net/dm9000e.c
++++ b/drivers/net/dm9000e.c
+@@ -33,19 +33,34 @@ static struct dm9000e_info *dm9000e_info;
+ 
+ static unsigned int read_data(int reg)
+ {
+-	iowrite8(reg, dm9000e_info->mem_reg);
+-	return ioread8(dm9000e_info->mem_data);
++	iowrite32(reg, dm9000e_info->mem_reg);
++	return ioread32(dm9000e_info->mem_data);
+ }
+ 
+ static void write_data(unsigned int data, int reg)
+ {
+-	iowrite8(reg, dm9000e_info->mem_reg);
+-	iowrite8(data, dm9000e_info->mem_data);
++	iowrite32(reg, dm9000e_info->mem_reg);
++	iowrite32(data, dm9000e_info->mem_data);
+ }
+ 
+ static void dm9000e_reset(void)
+ {
+-	
++	write_data(DM9000_NCR, 0x1);
++	udelay(20);
++	write_data(DM9000_NCR, 0x1);
++	udelay(20);
++	while (1) {
++		if (!(read_data(DM9000_NCR) & 0x1))
++			break;
++	}
++}
++
++static void dm9000e_set_mac_addr(struct net_device *dev)
++{
++	int i;
++	for (i = DM9000_PAR; i < ETH_ALEN; i++) {
++		write_data(dev->dev_addr[i], i);
++	}
+ }
+ 
+ static int dm9000e_ndo_init(struct net_device *dev)
+@@ -67,14 +82,12 @@ static int dm9000e_ndo_init(struct net_device *dev)
+ 	product_id |= ioread8(info->mem_data);
+ 	printk(KERN_INFO "dm9000 product id:0x%04x\n", product_id);
+ 
+-	
+-
+ 	return 0;
+ }
+ 
+ static int dm9000e_ndo_open(struct net_device *dev)
+ {
+-
++	
+ }
+ 
+ static int dm9000e_ndo_stop(struct net_device *dev)
+@@ -136,6 +149,8 @@ static int dm9000e_probe(struct platform_device *device)
+ 		goto out2;
+ 	}
+ 	
++	disable_irq(info->irq);
++
+ 	/* gpio init*/
+ 	int gpfcon = ioread16(GPIO_VA + GPFCON);
+ 	gpfcon &= ~(3 << 14);
+-- 
+1.7.1
+

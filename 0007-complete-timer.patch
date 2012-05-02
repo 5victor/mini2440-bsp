@@ -1,0 +1,136 @@
+From fb7c7300ac115728b3eb498f69b12e6e687c3966 Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Sun, 17 Jul 2011 17:36:11 +0800
+Subject: [PATCH 07/36] complete timer
+
+---
+ arch/arm/mach-s3c2440x/include/mach/hardware.h   |    1 +
+ arch/arm/mach-s3c2440x/include/mach/regs-timer.h |   18 +++++++++
+ arch/arm/mach-s3c2440x/include/mach/timex.h      |    2 +
+ arch/arm/mach-s3c2440x/io.c                      |   13 ++++++-
+ arch/arm/mach-s3c2440x/timer.c                   |   41 ++++++++++++++++++++++
+ 5 files changed, 74 insertions(+), 1 deletions(-)
+ create mode 100644 arch/arm/mach-s3c2440x/include/mach/regs-timer.h
+ create mode 100644 arch/arm/mach-s3c2440x/timer.c
+
+diff --git a/arch/arm/mach-s3c2440x/include/mach/hardware.h b/arch/arm/mach-s3c2440x/include/mach/hardware.h
+index 35f6cc6..bec8f7b 100644
+--- a/arch/arm/mach-s3c2440x/include/mach/hardware.h
++++ b/arch/arm/mach-s3c2440x/include/mach/hardware.h
+@@ -9,6 +9,7 @@
+ #define	LCD_PA		0x4D000000
+ #define NAND_PA		0x4E000000
+ #define	CAM_PA		0x4F000000
++#define TIMER_PA	0x51000000
+ 
+ 
+ #define MAP_VA_BASE	0xFF000000
+diff --git a/arch/arm/mach-s3c2440x/include/mach/regs-timer.h b/arch/arm/mach-s3c2440x/include/mach/regs-timer.h
+new file mode 100644
+index 0000000..26aec1a
+--- /dev/null
++++ b/arch/arm/mach-s3c2440x/include/mach/regs-timer.h
+@@ -0,0 +1,18 @@
++#define TCFG0	0x0
++#define TCFG1	0x4
++#define TCON	0x8
++#define TCNTB0	0xC
++#define TCMPB0	0x10
++#define TCNTO0	0x14
++#define TCNTB1	0x18
++#define	TCMPB1	0x1C
++#define	TCNTO1	0x20
++#define	TCNTB2	0x24
++#define	TCMPB2	0x28
++#define	TCNTO2	0x2C
++#define	TCNTB3	0x30
++#define	TCMPB3	0x34
++#define	TCNTO3	0x38
++#define	TCNTB4	0x3C
++#define	TCNTO4	0x40
++
+diff --git a/arch/arm/mach-s3c2440x/include/mach/timex.h b/arch/arm/mach-s3c2440x/include/mach/timex.h
+index a9a6d5c..04caf9f 100644
+--- a/arch/arm/mach-s3c2440x/include/mach/timex.h
++++ b/arch/arm/mach-s3c2440x/include/mach/timex.h
+@@ -3,4 +3,6 @@
+ 
+ #define CLOCK_TICK_RATE		12000000
+ 
++extern struct sys_timer s3c2440x_timer;
++
+ #endif
+diff --git a/arch/arm/mach-s3c2440x/io.c b/arch/arm/mach-s3c2440x/io.c
+index 220e572..b5afbcd 100644
+--- a/arch/arm/mach-s3c2440x/io.c
++++ b/arch/arm/mach-s3c2440x/io.c
+@@ -1,7 +1,18 @@
++#include <linux/init.h>
++#include <linux/kernel.h>
+ #include <mach/hardware.h>
++#include <asm/mach/map.h>
+ 
++#define MAP_DESC_ENTRY(_pa, _size) {_pa##_PA, __phys_to_pfn(_pa), _size, MT_DEVICE}
++
++static map_desc s3c2440x_map_desc[] __initdata = {
++	MAP_DESC_ENTRY(MEM, MAP_SIZE),
++	MAP_DESC_ENTRY(INT, MAP_SIZE),
++	MAP_DESC_ENTRY(LCD, MAP_SIZE),
++	MAP_DESC_ENTRY(TIMER, MAP_SIZE)
++};
+ 
+ void __init s3c2440x_map_io(void)
+ {
+-
++	iotable_init(&s3c2440x_map_desc, ARRAY_SIZE(s3c2440x_map_desc));
+ }
+diff --git a/arch/arm/mach-s3c2440x/timer.c b/arch/arm/mach-s3c2440x/timer.c
+new file mode 100644
+index 0000000..99aa258
+--- /dev/null
++++ b/arch/arm/mach-s3c2440x/timer.c
+@@ -0,0 +1,41 @@
++#include <asm/mach/time.h>
++#include <linux/irq.h>
++#include <linux/jiffies.h>
++#include <asm/io.h>
++
++#include <mach/irqs.h>
++#include <mach/hardware.h>
++#include <mach/regs-timer.h>
++
++static void s3c2440x_timer_init(void);
++
++struct sys_timer s3c2440x_timer = {
++	.init = s3c2440x_timer_init
++};
++
++
++static irqreturn_t s3c2440x_timer_interrupt(int irq, void *dev_id)
++{
++	timer_tick();
++	return IRQ_HANDLED;
++}
++
++static struct irqaction s3c2440x_timer_action = {
++	.name = "s3c2440x timer tick",
++	.flags = IRQF_TIMER,
++	.handler = s3c2440x_timer_interrupt,
++};
++
++
++static void s3c2440_timer0_setup(void)
++{
++	iowrite32(MAP_VA(TIMER_PA) + TCFG1, 4 << 16);
++	iowrite16(MAP_VA(TIMER_PA) + TCNTB4, LATCH);
++	iowrite32(MAP_VA(TIMER_PA) + TCON, 1 << 22 | 1 << 20);
++}
++
++static void s3c2440x_timer_init(void)
++{
++	s3c2440x_timer0_setup();
++	setup_irq(INT_TIMER4, &s3c2440x_timer_action);
++}
+-- 
+1.7.1
+

@@ -1,0 +1,164 @@
+From bf2d59f72c6c41f62f2087c0661a1264a866d3d1 Mon Sep 17 00:00:00 2001
+From: victor <vic7tor@gmail.com>
+Date: Fri, 22 Jul 2011 12:04:57 +0800
+Subject: [PATCH 12/36] timer_init has a bug
+
+---
+ arch/arm/mach-s3c2440x/Makefile                |    2 +-
+ arch/arm/mach-s3c2440x/include/mach/irqs.h     |    2 +
+ arch/arm/mach-s3c2440x/include/mach/regs-int.h |    4 +-
+ arch/arm/mach-s3c2440x/irq.c                   |   50 ++++++++++++++++++++++++
+ arch/arm/mach-s3c2440x/mach-mini2440.c         |   10 ++++-
+ arch/arm/mach-s3c2440x/timer.c                 |    7 ++-
+ 6 files changed, 67 insertions(+), 8 deletions(-)
+
+diff --git a/arch/arm/mach-s3c2440x/Makefile b/arch/arm/mach-s3c2440x/Makefile
+index 82195a8..3c5ef81 100644
+--- a/arch/arm/mach-s3c2440x/Makefile
++++ b/arch/arm/mach-s3c2440x/Makefile
+@@ -1,5 +1,5 @@
+ 
+ 
+ 
+-obj-y				+=	io.o
++obj-y				+=	io.o irq.o timer.o
+ obj-$(CONFIG_MACH_MINI2440)	+=	mach-mini2440.o
+diff --git a/arch/arm/mach-s3c2440x/include/mach/irqs.h b/arch/arm/mach-s3c2440x/include/mach/irqs.h
+index 543941a..977597b 100644
+--- a/arch/arm/mach-s3c2440x/include/mach/irqs.h
++++ b/arch/arm/mach-s3c2440x/include/mach/irqs.h
+@@ -39,4 +39,6 @@
+ 
+ #define NR_IRQS		32
+ 
++void s3c2440x_init_irq(void);
++
+ #endif
+diff --git a/arch/arm/mach-s3c2440x/include/mach/regs-int.h b/arch/arm/mach-s3c2440x/include/mach/regs-int.h
+index 099c681..9eaf58d 100644
+--- a/arch/arm/mach-s3c2440x/include/mach/regs-int.h
++++ b/arch/arm/mach-s3c2440x/include/mach/regs-int.h
+@@ -1,5 +1,5 @@
+-#ifndef __REG_INT_H
+-#define __REG_INT_H
++#ifndef __ASM_ARCH_REG_INT_H
++#define __ASM_ARCH_REG_INT_H
+ 
+ #define SRCPND		0x0
+ #define INTMOD		0x4
+diff --git a/arch/arm/mach-s3c2440x/irq.c b/arch/arm/mach-s3c2440x/irq.c
+index e69de29..f4eb027 100644
+--- a/arch/arm/mach-s3c2440x/irq.c
++++ b/arch/arm/mach-s3c2440x/irq.c
+@@ -0,0 +1,50 @@
++#include <asm/io.h>
++#include <linux/irq.h>
++#include <mach/hardware.h>
++#include <mach/irqs.h>
++#include <mach/regs-int.h>
++
++
++void s3c2440x_irq_ack(unsigned int irq)
++{
++	unsigned int i = 1 << irq;
++	iowrite32(i, (INT_VA + SRCPND));
++	iowrite32(i, (INT_VA + INTPND));
++}
++
++void s3c2440x_irq_mask(unsigned int irq)
++{
++	unsigned int mask;
++	mask = ioread32(INT_VA + INTMSK);
++	mask |= 1 << irq;
++	iowrite32(mask, (INT_VA + INTMSK));
++
++}
++
++void s3c2440x_irq_unmask(unsigned int irq)
++{
++	unsigned int mask;
++	mask = ioread32(INT_VA + INTMSK);
++	mask &= ~(1 << irq);
++	iowrite32(mask, INT_VA + INTMSK);
++}
++
++
++
++
++struct irq_chip s3c2440x_chip = {
++	.name	= "s3c2440x_chip",
++	.ack	= s3c2440x_irq_ack,
++	.mask	= s3c2440x_irq_mask,
++	.unmask	= s3c2440x_irq_unmask,
++};
++
++void s3c2440x_init_irq(void)
++{
++	int i;
++	for (i = 0; i < NR_IRQS; i++) {
++		set_irq_chip(i, &s3c2440x_chip);
++		set_irq_handler(i, handle_level_irq);
++	}
++}
++
+diff --git a/arch/arm/mach-s3c2440x/mach-mini2440.c b/arch/arm/mach-s3c2440x/mach-mini2440.c
+index 7f86b06..639e007 100644
+--- a/arch/arm/mach-s3c2440x/mach-mini2440.c
++++ b/arch/arm/mach-s3c2440x/mach-mini2440.c
+@@ -1,11 +1,17 @@
+ #include <linux/io.h>
+ #include <asm/mach/arch.h>
+ #include <asm/mach-types.h>
++#include <mach/timex.h>
++#include <mach/irqs.h>
+ 
++void mini2440_init_machine(void)
++{
+ 
+-
+-
++}
+ 
+ MACHINE_START(MINI2440, "mini2440")
+ 	.map_io = s3c2440x_map_io,
++	.timer = &s3c2440x_timer,
++	.init_irq = s3c2440x_init_irq,
++	.init_machine = mini2440_init_machine,
+ MACHINE_END
+diff --git a/arch/arm/mach-s3c2440x/timer.c b/arch/arm/mach-s3c2440x/timer.c
+index 99aa258..77159f8 100644
+--- a/arch/arm/mach-s3c2440x/timer.c
++++ b/arch/arm/mach-s3c2440x/timer.c
+@@ -2,10 +2,11 @@
+ #include <linux/irq.h>
+ #include <linux/jiffies.h>
+ #include <asm/io.h>
+-
+ #include <mach/irqs.h>
+ #include <mach/hardware.h>
+ #include <mach/regs-timer.h>
++#include <linux/irq.h>
++#include <linux/interrupt.h>
+ 
+ static void s3c2440x_timer_init(void);
+ 
+@@ -27,7 +28,7 @@ static struct irqaction s3c2440x_timer_action = {
+ };
+ 
+ 
+-static void s3c2440_timer0_setup(void)
++static void s3c2440x_timer4_setup(void)
+ {
+ 	iowrite32(MAP_VA(TIMER_PA) + TCFG1, 4 << 16);
+ 	iowrite16(MAP_VA(TIMER_PA) + TCNTB4, LATCH);
+@@ -36,6 +37,6 @@ static void s3c2440_timer0_setup(void)
+ 
+ static void s3c2440x_timer_init(void)
+ {
+-	s3c2440x_timer0_setup();
++	s3c2440x_timer4_setup();
+ 	setup_irq(INT_TIMER4, &s3c2440x_timer_action);
+ }
+-- 
+1.7.1
+
